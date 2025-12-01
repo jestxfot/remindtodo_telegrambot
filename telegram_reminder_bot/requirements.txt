@@ -1,0 +1,19 @@
+# Telegram Bot
+aiogram==3.13.1
+
+# Database
+SQLAlchemy==2.0.36
+aiosqlite==0.20.0
+
+# Scheduler for reminders
+APScheduler==3.10.4
+
+# Date/time parsing
+python-dateutil==2.9.0
+pytz==2024.2
+
+# Environment variables
+python-dotenv==1.0.1
+
+# Async support
+asyncio==3.4.3
