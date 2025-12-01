@@ -1,0 +1,14 @@
+# Render.com configuration
+services:
+  - type: worker
+    name: telegram-reminder-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: DATA_DIR
+        value: /app/data
+      - key: TIMEZONE
+        value: Europe/Moscow

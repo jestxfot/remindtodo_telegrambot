@@ -1,0 +1,14 @@
+# Fly.io configuration
+app = "telegram-reminder-bot"
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DATA_DIR = "/app/data"
+  TIMEZONE = "Europe/Moscow"
+
+[mounts]
+  source = "bot_data"
+  destination = "/app/data"
