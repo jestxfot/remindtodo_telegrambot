@@ -17,7 +17,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
-from config import BOT_TOKEN, PERSISTENT_REMINDER_INTERVAL, P2P_ENABLED, P2P_PORT, DATA_DIR, AUTO_LOCK_MINUTES
+from config import BOT_TOKEN, PERSISTENT_REMINDER_INTERVAL, P2P_ENABLED, P2P_PORT, DATA_DIR, SESSION_DURATIONS, DEFAULT_SESSION_DURATION
 from storage.json_storage import storage
 from middleware.auth_middleware import AuthMiddleware
 from handlers import (
@@ -158,6 +158,7 @@ async def set_bot_commands():
         BotCommand(command="newpassword", description="🔐 Новый пароль"),
         BotCommand(command="passwords", description="🔐 Пароли"),
         BotCommand(command="stats", description="📊 Статистика"),
+        BotCommand(command="session", description="⏱️ Управление сессией"),
         BotCommand(command="changepassword", description="🔑 Сменить пароль"),
     ]
     await bot.set_my_commands(commands)
@@ -168,7 +169,7 @@ async def on_startup():
     logger.info("Starting bot...")
     logger.info(f"🔐 Security: Master password protection enabled")
     logger.info(f"🔒 Encryption: AES-256-GCM")
-    logger.info(f"⏱️ Auto-lock: {AUTO_LOCK_MINUTES} minutes")
+    logger.info(f"⏱️ Session durations: {list(SESSION_DURATIONS.keys())}")
     
     # Create data directory
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)

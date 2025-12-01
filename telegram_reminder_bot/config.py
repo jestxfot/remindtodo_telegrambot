@@ -36,4 +36,13 @@ P2P_SECRET = os.getenv("P2P_SECRET", "")  # Shared secret for P2P auth
 # Password vault settings
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_REQUIRE_SPECIAL = True
-AUTO_LOCK_MINUTES = 30  # Auto-lock vault after inactivity (minutes)
+
+# Session settings
+SESSION_DURATIONS = {
+    "30min": 30,           # 30 минут
+    "2hours": 120,         # 2 часа
+    "1day": 1440,          # 1 день
+    "1week": 10080,        # 1 неделя
+    "1month": 43200,       # 1 месяц
+}
+DEFAULT_SESSION_DURATION = "30min"

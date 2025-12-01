@@ -72,6 +72,7 @@ async def cmd_help(message: Message):
 <b>🔐 Безопасность:</b>
 • /unlock — разблокировать хранилище
 • /lock — заблокировать хранилище
+• /session — настройки сессии
 • /changepassword — сменить мастер-пароль
 
 <b>🔔 Напоминания:</b>
@@ -90,9 +91,13 @@ async def cmd_help(message: Message):
 • /newpassword — добавить пароль
 • /passwords — хранилище паролей
 
+<b>⏱️ Сессии:</b>
+• Выберите срок: 30 мин, 2 часа, день, неделя, месяц
+• Сессия сохраняется безопасно на сервере
+• /session — посмотреть или продлить сессию
+
 <b>⚠️ Важно:</b>
 • Запомните мастер-пароль — восстановить невозможно!
-• Хранилище блокируется после 30 минут неактивности
 • Все данные зашифрованы AES-256-GCM"""
     
     await message.answer(help_text, parse_mode="HTML")
@@ -141,13 +146,17 @@ async def cmd_settings(message: Message):
         await message.answer("🔒 Разблокируйте хранилище: /unlock")
         return
     
+    from handlers.auth import get_session_info
+    session_info = get_session_info(message.from_user.id)
+    
     settings_text = f"""⚙️ <b>Настройки</b>
 
 🌍 Часовой пояс: <code>{user_storage.user.timezone}</code>
 🔐 Шифрование: AES-256-GCM ✅
-⏱️ Автоблокировка: 30 минут
+{session_info}
 
-<b>Управление паролем:</b>
+<b>Управление:</b>
+/session — управление сессией
 /changepassword — сменить мастер-пароль
 /lock — заблокировать сейчас"""
     

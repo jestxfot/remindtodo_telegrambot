@@ -18,10 +18,10 @@ class AuthMiddleware(BaseMiddleware):
     """
     
     # Commands that don't require authentication
-    PUBLIC_COMMANDS = {'/start', '/help', '/unlock', '/lock'}
+    PUBLIC_COMMANDS = {'/start', '/help', '/unlock', '/lock', '/session'}
     
     # Callback prefixes that don't require auth
-    PUBLIC_CALLBACKS = {'settings_'}
+    PUBLIC_CALLBACKS = {'settings_', 'session_dur:', 'session_menu', 'session_change:', 'session_back', 'session_logout'}
     
     async def __call__(
         self,
