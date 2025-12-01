@@ -8,11 +8,6 @@ from aiogram.types import (
     InlineKeyboardButton
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
-from typing import Optional, List
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def get_main_keyboard() -> ReplyKeyboardMarkup:
@@ -22,6 +17,10 @@ def get_main_keyboard() -> ReplyKeyboardMarkup:
     builder.row(
         KeyboardButton(text="📝 Задачи"),
         KeyboardButton(text="⏰ Напоминания")
+    )
+    builder.row(
+        KeyboardButton(text="📝 Заметки"),
+        KeyboardButton(text="🔐 Пароли")
     )
     builder.row(
         KeyboardButton(text="➕ Новая задача"),
@@ -42,7 +41,7 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True)
 
 
-def get_reminder_keyboard(reminder_id: int, is_active: bool = False) -> InlineKeyboardMarkup:
+def get_reminder_keyboard(reminder_id: str, is_active: bool = False) -> InlineKeyboardMarkup:
     """Get inline keyboard for reminder actions"""
     builder = InlineKeyboardBuilder()
     
@@ -68,7 +67,7 @@ def get_reminder_keyboard(reminder_id: int, is_active: bool = False) -> InlineKe
     return builder.as_markup()
 
 
-def get_snooze_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
+def get_snooze_keyboard(reminder_id: str) -> InlineKeyboardMarkup:
     """Get keyboard for snooze options"""
     builder = InlineKeyboardBuilder()
     
@@ -90,7 +89,7 @@ def get_snooze_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_recurrence_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
+def get_recurrence_keyboard(reminder_id: str) -> InlineKeyboardMarkup:
     """Get keyboard for recurrence options"""
     builder = InlineKeyboardBuilder()
     
@@ -103,8 +102,7 @@ def get_recurrence_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="Ежемесячно", callback_data=f"recurrence_set:{reminder_id}:monthly")
     )
     builder.row(
-        InlineKeyboardButton(text="Ежегодно", callback_data=f"recurrence_set:{reminder_id}:yearly"),
-        InlineKeyboardButton(text="Другое...", callback_data=f"recurrence_custom:{reminder_id}")
+        InlineKeyboardButton(text="Ежегодно", callback_data=f"recurrence_set:{reminder_id}:yearly")
     )
     builder.row(
         InlineKeyboardButton(text="⬅️ Назад", callback_data=f"reminder_back:{reminder_id}")
@@ -113,7 +111,7 @@ def get_recurrence_keyboard(reminder_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_todo_keyboard(todo_id: int) -> InlineKeyboardMarkup:
+def get_todo_keyboard(todo_id: str) -> InlineKeyboardMarkup:
     """Get inline keyboard for todo actions"""
     builder = InlineKeyboardBuilder()
     
@@ -133,7 +131,7 @@ def get_todo_keyboard(todo_id: int) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_priority_keyboard(todo_id: int) -> InlineKeyboardMarkup:
+def get_priority_keyboard(todo_id: str) -> InlineKeyboardMarkup:
     """Get keyboard for priority selection"""
     builder = InlineKeyboardBuilder()
     
@@ -163,9 +161,10 @@ def get_todos_list_keyboard(todos: list, page: int = 0, per_page: int = 5) -> In
     for todo in page_todos:
         status_emoji = todo.status_emoji
         priority_emoji = todo.priority_emoji
+        title = todo.title[:30] + "..." if len(todo.title) > 30 else todo.title
         builder.row(
             InlineKeyboardButton(
-                text=f"{status_emoji} {priority_emoji} {todo.title[:30]}",
+                text=f"{status_emoji} {priority_emoji} {title}",
                 callback_data=f"todo_view:{todo.id}"
             )
         )
@@ -196,11 +195,12 @@ def get_reminders_list_keyboard(reminders: list, page: int = 0, per_page: int = 
     page_reminders = reminders[start:end]
     
     for reminder in page_reminders:
-        status_icon = "🔔" if reminder.status.value == "pending" else "✅" if reminder.status.value == "completed" else "⏸️"
+        status_icon = "🔔" if reminder.status == "pending" else "✅" if reminder.status == "completed" else "⏸️"
         recurrence_icon = "🔄" if reminder.is_recurring else ""
+        title = reminder.title[:30] + "..." if len(reminder.title) > 30 else reminder.title
         builder.row(
             InlineKeyboardButton(
-                text=f"{status_icon}{recurrence_icon} {reminder.title[:30]}",
+                text=f"{status_icon}{recurrence_icon} {title}",
                 callback_data=f"reminder_view:{reminder.id}"
             )
         )
@@ -222,7 +222,7 @@ def get_reminders_list_keyboard(reminders: list, page: int = 0, per_page: int = 
     return builder.as_markup()
 
 
-def get_confirmation_keyboard(action: str, item_id: int) -> InlineKeyboardMarkup:
+def get_confirmation_keyboard(action: str, item_id: str) -> InlineKeyboardMarkup:
     """Get confirmation keyboard"""
     builder = InlineKeyboardBuilder()
     
@@ -245,7 +245,7 @@ def get_settings_keyboard() -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🔔 Интервал уведомлений", callback_data="settings_interval")
     )
     builder.row(
-        InlineKeyboardButton(text="🔊 Звук по умолчанию", callback_data="settings_sound")
+        InlineKeyboardButton(text="🔐 Экспорт данных", callback_data="settings_export")
     )
     
     return builder.as_markup()

@@ -6,14 +6,13 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
+from datetime import datetime
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.database import async_session
-from models.todo import TodoPriority, TodoStatus
-from services.user_service import UserService
-from services.todo_service import TodoService
+from storage.json_storage import storage
+from storage.models import TodoPriority, TodoStatus
 from utils.keyboards import (
     get_main_keyboard,
     get_cancel_keyboard,
@@ -30,30 +29,18 @@ router = Router()
 class TodoStates(StatesGroup):
     """States for todo creation"""
     waiting_for_title = State()
-    waiting_for_description = State()
-    waiting_for_deadline = State()
-    editing_title = State()
-    editing_description = State()
     setting_deadline = State()
 
 
 async def show_todos_list(message: Message):
     """Show list of user's todos"""
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(message.from_user.id)
-        
-        if not user:
-            await message.answer("Пользователь не найден. Используйте /start")
-            return
-        
-        todo_service = TodoService(session)
-        todos = await todo_service.get_user_todos(user.id)
-        
-        text = format_todos_list(todos, user.timezone)
-        keyboard = get_todos_list_keyboard(todos)
-        
-        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    user_storage = await storage.get_user_storage(message.from_user.id)
+    todos = await user_storage.get_todos()
+    
+    text = format_todos_list(todos, user_storage.user.timezone)
+    keyboard = get_todos_list_keyboard(todos)
+    
+    await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
 
 
 async def start_create_todo(message: Message, state: FSMContext):
@@ -90,131 +77,114 @@ async def process_todo_title(message: Message, state: FSMContext):
         await message.answer("Создание задачи отменено", reply_markup=get_main_keyboard())
         return
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(message.from_user.id)
-        
-        if not user:
-            await message.answer("Ошибка: пользователь не найден")
-            return
-        
-        todo_service = TodoService(session)
-        todo = await todo_service.create_todo(
-            user_id=user.id,
-            title=text
-        )
-        
-        await state.clear()
-        
-        formatted = format_todo(todo, user.timezone)
-        await message.answer(
-            f"✅ Задача создана!\n\n{formatted}",
-            reply_markup=get_todo_keyboard(todo.id),
-            parse_mode="HTML"
-        )
-        
-        await message.answer(
-            "Используйте кнопки для настройки приоритета, дедлайна и т.д.",
-            reply_markup=get_main_keyboard()
-        )
+    user_storage = await storage.get_user_storage(message.from_user.id)
+    todo = await user_storage.create_todo(title=text)
+    
+    await state.clear()
+    
+    formatted = format_todo(todo, user_storage.user.timezone)
+    await message.answer(
+        f"✅ Задача создана!\n\n{formatted}",
+        reply_markup=get_todo_keyboard(todo.id),
+        parse_mode="HTML"
+    )
+    
+    await message.answer(
+        "Используйте кнопки для настройки приоритета, дедлайна и т.д.",
+        reply_markup=get_main_keyboard()
+    )
 
 
 @router.callback_query(F.data.startswith("todo_view:"))
 async def cb_todo_view(callback: CallbackQuery):
     """View todo details"""
-    todo_id = int(callback.data.split(":")[1])
+    todo_id = callback.data.split(":")[1]
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(callback.from_user.id)
-        
-        todo_service = TodoService(session)
-        todo = await todo_service.get_todo(todo_id)
-        
-        if not todo:
-            await callback.answer("Задача не найдена")
-            return
-        
-        formatted = format_todo(todo, user.timezone if user else "Europe/Moscow")
-        await callback.message.edit_text(
-            formatted,
-            reply_markup=get_todo_keyboard(todo.id),
-            parse_mode="HTML"
-        )
+    user_storage = await storage.get_user_storage(callback.from_user.id)
+    todo = await user_storage.get_todo(todo_id)
+    
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
+    formatted = format_todo(todo, user_storage.user.timezone)
+    await callback.message.edit_text(
+        formatted,
+        reply_markup=get_todo_keyboard(todo.id),
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data.startswith("todo_complete:"))
 async def cb_todo_complete(callback: CallbackQuery):
     """Mark todo as completed"""
-    todo_id = int(callback.data.split(":")[1])
+    todo_id = callback.data.split(":")[1]
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(callback.from_user.id)
-        
-        todo_service = TodoService(session)
-        todo = await todo_service.complete_todo(todo_id)
-        
-        if not todo:
-            await callback.answer("Задача не найдена")
-            return
-        
-        await callback.answer("✅ Задача выполнена!")
-        
-        formatted = format_todo(todo, user.timezone if user else "Europe/Moscow")
-        await callback.message.edit_text(
-            formatted,
-            reply_markup=get_todo_keyboard(todo.id),
-            parse_mode="HTML"
-        )
+    user_storage = await storage.get_user_storage(callback.from_user.id)
+    todo = await user_storage.update_todo(
+        todo_id,
+        status=TodoStatus.COMPLETED.value,
+        completed_at=datetime.utcnow().isoformat()
+    )
+    
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
+    await callback.answer("✅ Задача выполнена!")
+    
+    formatted = format_todo(todo, user_storage.user.timezone)
+    await callback.message.edit_text(
+        formatted,
+        reply_markup=get_todo_keyboard(todo.id),
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data.startswith("todo_progress:"))
 async def cb_todo_progress(callback: CallbackQuery):
     """Set todo status to in progress"""
-    todo_id = int(callback.data.split(":")[1])
+    todo_id = callback.data.split(":")[1]
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(callback.from_user.id)
-        
-        todo_service = TodoService(session)
-        todo = await todo_service.set_in_progress(todo_id)
-        
-        if not todo:
-            await callback.answer("Задача не найдена")
-            return
-        
-        await callback.answer("🔄 Задача в работе!")
-        
-        formatted = format_todo(todo, user.timezone if user else "Europe/Moscow")
-        await callback.message.edit_text(
-            formatted,
-            reply_markup=get_todo_keyboard(todo.id),
-            parse_mode="HTML"
-        )
+    user_storage = await storage.get_user_storage(callback.from_user.id)
+    todo = await user_storage.update_todo(
+        todo_id,
+        status=TodoStatus.IN_PROGRESS.value
+    )
+    
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
+    await callback.answer("🔄 Задача в работе!")
+    
+    formatted = format_todo(todo, user_storage.user.timezone)
+    await callback.message.edit_text(
+        formatted,
+        reply_markup=get_todo_keyboard(todo.id),
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data.startswith("todo_delete:"))
 async def cb_todo_delete(callback: CallbackQuery):
     """Delete todo"""
-    todo_id = int(callback.data.split(":")[1])
+    todo_id = callback.data.split(":")[1]
     
-    async with async_session() as session:
-        todo_service = TodoService(session)
-        deleted = await todo_service.delete_todo(todo_id)
-        
-        if deleted:
-            await callback.answer("🗑️ Задача удалена")
-            await callback.message.edit_text("Задача удалена")
-        else:
-            await callback.answer("Задача не найдена")
+    user_storage = await storage.get_user_storage(callback.from_user.id)
+    deleted = await user_storage.delete_todo(todo_id)
+    
+    if deleted:
+        await callback.answer("🗑️ Задача удалена")
+        await callback.message.edit_text("Задача удалена")
+    else:
+        await callback.answer("Задача не найдена")
 
 
 @router.callback_query(F.data.startswith("todo_priority:"))
 async def cb_todo_priority(callback: CallbackQuery):
     """Show priority selection"""
-    todo_id = int(callback.data.split(":")[1])
+    todo_id = callback.data.split(":")[1]
     
     await callback.message.edit_text(
         "🎯 <b>Выберите приоритет:</b>",
@@ -227,50 +197,37 @@ async def cb_todo_priority(callback: CallbackQuery):
 async def cb_priority_set(callback: CallbackQuery):
     """Set todo priority"""
     parts = callback.data.split(":")
-    todo_id = int(parts[1])
+    todo_id = parts[1]
     priority_str = parts[2]
     
-    priority_map = {
-        "low": TodoPriority.LOW,
-        "medium": TodoPriority.MEDIUM,
-        "high": TodoPriority.HIGH,
-        "urgent": TodoPriority.URGENT
+    user_storage = await storage.get_user_storage(callback.from_user.id)
+    todo = await user_storage.update_todo(todo_id, priority=priority_str)
+    
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
+    priority_names = {
+        "low": "Низкий",
+        "medium": "Средний",
+        "high": "Высокий",
+        "urgent": "Срочный"
     }
     
-    priority = priority_map.get(priority_str, TodoPriority.MEDIUM)
+    await callback.answer(f"✅ Приоритет: {priority_names.get(priority_str, 'установлен')}")
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(callback.from_user.id)
-        
-        todo_service = TodoService(session)
-        todo = await todo_service.set_priority(todo_id, priority)
-        
-        if not todo:
-            await callback.answer("Задача не найдена")
-            return
-        
-        priority_names = {
-            TodoPriority.LOW: "Низкий",
-            TodoPriority.MEDIUM: "Средний",
-            TodoPriority.HIGH: "Высокий",
-            TodoPriority.URGENT: "Срочный"
-        }
-        
-        await callback.answer(f"✅ Приоритет: {priority_names.get(priority, 'установлен')}")
-        
-        formatted = format_todo(todo, user.timezone if user else "Europe/Moscow")
-        await callback.message.edit_text(
-            formatted,
-            reply_markup=get_todo_keyboard(todo.id),
-            parse_mode="HTML"
-        )
+    formatted = format_todo(todo, user_storage.user.timezone)
+    await callback.message.edit_text(
+        formatted,
+        reply_markup=get_todo_keyboard(todo.id),
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data.startswith("todo_deadline:"))
 async def cb_todo_deadline(callback: CallbackQuery, state: FSMContext):
     """Start deadline setting"""
-    todo_id = int(callback.data.split(":")[1])
+    todo_id = callback.data.split(":")[1]
     
     await state.set_state(TodoStates.setting_deadline)
     await state.update_data(todo_id=todo_id)
@@ -295,33 +252,24 @@ async def process_deadline(message: Message, state: FSMContext):
     data = await state.get_data()
     todo_id = data.get("todo_id")
     
+    user_storage = await storage.get_user_storage(message.from_user.id)
+    
     if text in ["нет", "без дедлайна", "убрать", "удалить"]:
-        async with async_session() as session:
-            user_service = UserService(session)
-            user = await user_service.get_user_by_telegram_id(message.from_user.id)
-            
-            todo_service = TodoService(session)
-            todo = await todo_service.set_deadline(todo_id, None)
-            
-            await state.clear()
-            
-            if todo:
-                formatted = format_todo(todo, user.timezone if user else "Europe/Moscow")
-                await message.answer(
-                    f"✅ Дедлайн убран\n\n{formatted}",
-                    reply_markup=get_main_keyboard(),
-                    parse_mode="HTML"
-                )
-            else:
-                await message.answer("Задача не найдена", reply_markup=get_main_keyboard())
+        todo = await user_storage.update_todo(todo_id, deadline=None)
+        await state.clear()
+        
+        if todo:
+            formatted = format_todo(todo, user_storage.user.timezone)
+            await message.answer(
+                f"✅ Дедлайн убран\n\n{formatted}",
+                reply_markup=get_main_keyboard(),
+                parse_mode="HTML"
+            )
+        else:
+            await message.answer("Задача не найдена", reply_markup=get_main_keyboard())
         return
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(message.from_user.id)
-        timezone = user.timezone if user else "Europe/Moscow"
-    
-    deadline = parse_datetime(text, timezone)
+    deadline = parse_datetime(text, user_storage.user.timezone)
     
     if not deadline:
         await message.answer(
@@ -333,48 +281,38 @@ async def process_deadline(message: Message, state: FSMContext):
         )
         return
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(message.from_user.id)
-        
-        todo_service = TodoService(session)
-        todo = await todo_service.set_deadline(todo_id, deadline)
-        
-        await state.clear()
-        
-        if todo:
-            formatted = format_todo(todo, user.timezone if user else "Europe/Moscow")
-            await message.answer(
-                f"✅ Дедлайн установлен!\n\n{formatted}",
-                reply_markup=get_main_keyboard(),
-                parse_mode="HTML"
-            )
-        else:
-            await message.answer("Задача не найдена", reply_markup=get_main_keyboard())
+    todo = await user_storage.update_todo(todo_id, deadline=deadline.isoformat())
+    await state.clear()
+    
+    if todo:
+        formatted = format_todo(todo, user_storage.user.timezone)
+        await message.answer(
+            f"✅ Дедлайн установлен!\n\n{formatted}",
+            reply_markup=get_main_keyboard(),
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer("Задача не найдена", reply_markup=get_main_keyboard())
 
 
 @router.callback_query(F.data.startswith("todo_back:"))
 async def cb_todo_back(callback: CallbackQuery):
     """Go back to todo view"""
-    todo_id = int(callback.data.split(":")[1])
+    todo_id = callback.data.split(":")[1]
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(callback.from_user.id)
-        
-        todo_service = TodoService(session)
-        todo = await todo_service.get_todo(todo_id)
-        
-        if not todo:
-            await callback.answer("Задача не найдена")
-            return
-        
-        formatted = format_todo(todo, user.timezone if user else "Europe/Moscow")
-        await callback.message.edit_text(
-            formatted,
-            reply_markup=get_todo_keyboard(todo.id),
-            parse_mode="HTML"
-        )
+    user_storage = await storage.get_user_storage(callback.from_user.id)
+    todo = await user_storage.get_todo(todo_id)
+    
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
+    formatted = format_todo(todo, user_storage.user.timezone)
+    await callback.message.edit_text(
+        formatted,
+        reply_markup=get_todo_keyboard(todo.id),
+        parse_mode="HTML"
+    )
 
 
 @router.callback_query(F.data == "todo_new")
@@ -389,18 +327,10 @@ async def cb_todos_page(callback: CallbackQuery):
     """Handle todos pagination"""
     page = int(callback.data.split(":")[1])
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(callback.from_user.id)
-        
-        if not user:
-            await callback.answer("Пользователь не найден")
-            return
-        
-        todo_service = TodoService(session)
-        todos = await todo_service.get_user_todos(user.id)
-        
-        text = format_todos_list(todos, user.timezone)
-        keyboard = get_todos_list_keyboard(todos, page)
-        
-        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+    user_storage = await storage.get_user_storage(callback.from_user.id)
+    todos = await user_storage.get_todos()
+    
+    text = format_todos_list(todos, user_storage.user.timezone)
+    keyboard = get_todos_list_keyboard(todos, page)
+    
+    await callback.message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")

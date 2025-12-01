@@ -9,12 +9,8 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from models.database import async_session
-from services.user_service import UserService
-from services.todo_service import TodoService
-from services.reminder_service import ReminderService
+from storage.json_storage import storage
 from utils.keyboards import get_main_keyboard, get_settings_keyboard
-from utils.formatters import format_statistics
 
 router = Router()
 
@@ -24,35 +20,38 @@ async def cmd_start(message: Message, state: FSMContext):
     """Handle /start command"""
     await state.clear()
     
-    async with async_session() as session:
-        user_service = UserService(session)
-        await user_service.get_or_create_user(
-            telegram_id=message.from_user.id,
-            username=message.from_user.username,
-            first_name=message.from_user.first_name,
-            last_name=message.from_user.last_name
-        )
+    # Initialize user storage (creates encrypted file if needed)
+    user_storage = await storage.get_user_storage(message.from_user.id)
+    await user_storage.update_user(
+        username=message.from_user.username,
+        first_name=message.from_user.first_name,
+        last_name=message.from_user.last_name
+    )
     
     welcome_text = f"""👋 <b>Привет, {message.from_user.first_name or 'друг'}!</b>
 
-Я бот для управления напоминаниями и задачами.
+Я бот для управления задачами, напоминаниями, заметками и паролями.
 
-<b>🔔 Что я умею:</b>
-• Создавать напоминания с точным временем
-• Повторяющиеся напоминания (ежедневно, еженедельно и т.д.)
-• Постоянные уведомления со звуком пока не отключишь
-• Управление списком задач (TODO)
+<b>🔐 Безопасность:</b>
+• Все данные шифруются AES-256-GCM
+• Пароли и заметки хранятся зашифрованными
+• Только вы можете расшифровать данные
+
+<b>📋 Возможности:</b>
+• ⏰ Напоминания с постоянными уведомлениями
+• 📝 Зашифрованные заметки
+• 🔐 Безопасное хранилище паролей
+• ✅ Список задач с приоритетами
 
 <b>📋 Команды:</b>
-/newreminder - Новое напоминание
-/reminders - Список напоминаний
-/newtodo - Новая задача
-/todos - Список задач
+/reminders - Напоминания
+/todos - Задачи  
+/notes - Заметки 🔐
+/passwords - Пароли 🔐
 /stats - Статистика
 /settings - Настройки
-/help - Помощь
 
-Выбери действие на клавиатуре ниже! 👇"""
+Выбери действие на клавиатуре! 👇"""
     
     await message.answer(
         welcome_text,
@@ -68,36 +67,31 @@ async def cmd_help(message: Message):
 
 <b>🔔 Напоминания:</b>
 • /newreminder - создать напоминание
-• /reminders - список всех напоминаний
-
-<b>Примеры создания напоминания:</b>
-<code>Позвонить маме завтра в 10:00</code>
-<code>Встреча через 2 часа</code>
-<code>Оплатить счёт 15 января в 12:00</code>
+• /reminders - список напоминаний
+Постоянные уведомления пока не отреагируете!
 
 <b>📋 Задачи (TODO):</b>
 • /newtodo - создать задачу
-• /todos - список всех задач
+• /todos - список задач
+Приоритеты: 🟢🟡🟠🔴
 
-<b>Приоритеты задач:</b>
-🟢 Низкий | 🟡 Средний | 🟠 Высокий | 🔴 Срочный
+<b>📝 Заметки:</b>
+• /newnote - создать заметку
+• /notes - список заметок
+🔐 Все заметки зашифрованы!
 
-<b>🔄 Повторяющиеся напоминания:</b>
-После создания напоминания можно настроить повторение:
-• Ежедневно
-• Еженедельно  
-• Ежемесячно
-• Ежегодно
-• Или свой интервал
+<b>🔐 Пароли:</b>
+• /newpassword - добавить пароль
+• /passwords - хранилище паролей
+🔒 AES-256-GCM шифрование
 
-<b>🔊 Постоянные уведомления:</b>
-Бот будет напоминать каждую минуту, пока вы не:
-• Отметите выполненным ✅
-• Отложите на время ⏸️
-• Отключите звук 🔇
+<b>🎲 Генератор паролей:</b>
+В разделе паролей можно сгенерировать
+надёжный случайный пароль
 
-<b>⚙️ Настройки:</b>
-/settings - настроить часовой пояс и интервал уведомлений"""
+<b>🔄 Синхронизация:</b>
+Данные автоматически сохраняются
+в зашифрованном JSON файле"""
     
     await message.answer(help_text, parse_mode="HTML")
 
@@ -105,51 +99,50 @@ async def cmd_help(message: Message):
 @router.message(Command("stats"))
 async def cmd_stats(message: Message):
     """Handle /stats command"""
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(message.from_user.id)
-        
-        if not user:
-            await message.answer("Пользователь не найден. Используйте /start")
-            return
-        
-        todo_service = TodoService(session)
-        reminder_service = ReminderService(session)
-        
-        # Get todo stats
-        todo_stats = await todo_service.get_statistics(user.id)
-        
-        # Get reminder stats
-        all_reminders = await reminder_service.get_user_reminders(user.id, include_completed=True)
-        from models.reminder import ReminderStatus
-        active_reminders = len([r for r in all_reminders if r.status in [ReminderStatus.PENDING, ReminderStatus.ACTIVE]])
-        completed_reminders = len([r for r in all_reminders if r.status == ReminderStatus.COMPLETED])
-        
-        stats_text = format_statistics(
-            total_todos=todo_stats["total"],
-            completed_todos=todo_stats["completed"],
-            pending_todos=todo_stats["pending"] + todo_stats["in_progress"],
-            overdue_todos=todo_stats["overdue"],
-            total_reminders=len(all_reminders),
-            active_reminders=active_reminders,
-            completed_reminders=completed_reminders
-        )
-        
-        await message.answer(stats_text, parse_mode="HTML")
+    user_storage = await storage.get_user_storage(message.from_user.id)
+    stats = await user_storage.get_statistics()
+    
+    todos = stats["todos"]
+    reminders = stats["reminders"]
+    
+    completion_rate = (todos["completed"] / todos["total"] * 100) if todos["total"] > 0 else 0
+    
+    stats_text = f"""📊 <b>Ваша статистика</b>
+
+<b>📋 Задачи:</b>
+├ Всего: {todos["total"]}
+├ Выполнено: {todos["completed"]} ✅
+├ В ожидании: {todos["pending"]} ⏳
+├ В работе: {todos["in_progress"]} 🔄
+├ Просрочено: {todos["overdue"]} ⚠️
+└ Процент выполнения: {completion_rate:.1f}%
+
+<b>⏰ Напоминания:</b>
+├ Всего: {reminders["total"]}
+├ Ожидают: {reminders["pending"]} 🔔
+├ Активных: {reminders["active"]} 🔊
+└ Выполнено: {reminders["completed"]} ✅
+
+<b>📝 Заметки:</b> {stats["notes"]} 🔐
+
+<b>🔐 Пароли:</b> {stats["passwords"]} 🔒
+"""
+    
+    await message.answer(stats_text, parse_mode="HTML")
 
 
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
     """Handle /settings command"""
-    async with async_session() as session:
-        user_service = UserService(session)
-        user = await user_service.get_user_by_telegram_id(message.from_user.id)
-        
-        timezone = user.timezone if user else "Europe/Moscow"
+    user_storage = await storage.get_user_storage(message.from_user.id)
+    user = user_storage.user
     
     settings_text = f"""⚙️ <b>Настройки</b>
 
-🌍 Текущий часовой пояс: <code>{timezone}</code>
+🌍 Часовой пояс: <code>{user.timezone}</code>
+
+🔐 Шифрование: AES-256-GCM ✅
+💾 Формат данных: JSON (зашифрованный)
 
 Выберите, что хотите изменить:"""
     
@@ -186,6 +179,20 @@ async def btn_new_reminder(message: Message, state: FSMContext):
     """Handle New Reminder button"""
     from .reminders import start_create_reminder
     await start_create_reminder(message, state)
+
+
+@router.message(F.text == "📝 Заметки")
+async def btn_notes(message: Message):
+    """Handle Notes button"""
+    from .notes import show_notes_list
+    await show_notes_list(message)
+
+
+@router.message(F.text == "🔐 Пароли")
+async def btn_passwords(message: Message):
+    """Handle Passwords button"""
+    from .passwords import show_passwords_list
+    await show_passwords_list(message)
 
 
 @router.message(F.text == "📊 Статистика")

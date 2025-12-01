@@ -2,7 +2,7 @@
 Formatting utilities for displaying data
 """
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, List
 import pytz
 import sys
 import os
@@ -11,43 +11,47 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DEFAULT_TIMEZONE
 
 if TYPE_CHECKING:
-    from models.reminder import Reminder
-    from models.todo import Todo
+    from storage.models import Reminder, Todo
 
 
-def format_datetime(dt: datetime, timezone: str = DEFAULT_TIMEZONE, include_time: bool = True) -> str:
-    """Format datetime for display"""
-    tz = pytz.timezone(timezone)
+def format_datetime(dt_str: str, timezone: str = DEFAULT_TIMEZONE, include_time: bool = True) -> str:
+    """Format datetime string for display"""
+    if not dt_str:
+        return "—"
     
-    if dt.tzinfo is None:
-        dt = pytz.utc.localize(dt)
-    
-    local_dt = dt.astimezone(tz)
-    
-    if include_time:
-        return local_dt.strftime("%d.%m.%Y %H:%M")
-    return local_dt.strftime("%d.%m.%Y")
+    try:
+        dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+        tz = pytz.timezone(timezone)
+        
+        if dt.tzinfo is None:
+            dt = pytz.utc.localize(dt)
+        
+        local_dt = dt.astimezone(tz)
+        
+        if include_time:
+            return local_dt.strftime("%d.%m.%Y %H:%M")
+        return local_dt.strftime("%d.%m.%Y")
+    except Exception:
+        return dt_str[:16].replace('T', ' ')
 
 
 def format_reminder(reminder: "Reminder", timezone: str = DEFAULT_TIMEZONE) -> str:
     """Format reminder for display"""
-    from models.reminder import ReminderStatus, RecurrenceType
-    
     status_emoji = {
-        ReminderStatus.PENDING: "⏳",
-        ReminderStatus.ACTIVE: "🔔",
-        ReminderStatus.SNOOZED: "⏸️",
-        ReminderStatus.COMPLETED: "✅",
-        ReminderStatus.CANCELLED: "❌"
+        "pending": "⏳",
+        "active": "🔔",
+        "snoozed": "⏸️",
+        "completed": "✅",
+        "cancelled": "❌"
     }
     
     recurrence_text = {
-        RecurrenceType.NONE: "",
-        RecurrenceType.DAILY: "🔄 Ежедневно",
-        RecurrenceType.WEEKLY: "🔄 Еженедельно",
-        RecurrenceType.MONTHLY: "🔄 Ежемесячно",
-        RecurrenceType.YEARLY: "🔄 Ежегодно",
-        RecurrenceType.CUSTOM: f"🔄 Каждые {reminder.recurrence_interval} мин" if reminder.recurrence_interval else "🔄 Повтор"
+        "none": "",
+        "daily": "🔄 Ежедневно",
+        "weekly": "🔄 Еженедельно",
+        "monthly": "🔄 Ежемесячно",
+        "yearly": "🔄 Ежегодно",
+        "custom": f"🔄 Каждые {reminder.recurrence_interval} мин" if reminder.recurrence_interval else "🔄 Повтор"
     }
     
     lines = [
@@ -65,7 +69,7 @@ def format_reminder(reminder: "Reminder", timezone: str = DEFAULT_TIMEZONE) -> s
     if reminder.is_persistent:
         lines.append(f"🔊 Постоянное уведомление (каждые {reminder.persistent_interval} сек)")
     
-    if reminder.status == ReminderStatus.SNOOZED and reminder.snoozed_until:
+    if reminder.status == "snoozed" and reminder.snoozed_until:
         lines.append(f"⏸️ Отложено до {format_datetime(reminder.snoozed_until, timezone)}")
     
     if reminder.snooze_count > 0:
@@ -76,20 +80,18 @@ def format_reminder(reminder: "Reminder", timezone: str = DEFAULT_TIMEZONE) -> s
 
 def format_todo(todo: "Todo", timezone: str = DEFAULT_TIMEZONE) -> str:
     """Format todo for display"""
-    from models.todo import TodoStatus, TodoPriority
-    
     priority_text = {
-        TodoPriority.LOW: "🟢 Низкий",
-        TodoPriority.MEDIUM: "🟡 Средний",
-        TodoPriority.HIGH: "🟠 Высокий",
-        TodoPriority.URGENT: "🔴 Срочный"
+        "low": "🟢 Низкий",
+        "medium": "🟡 Средний",
+        "high": "🟠 Высокий",
+        "urgent": "🔴 Срочный"
     }
     
     status_text = {
-        TodoStatus.PENDING: "⏳ Ожидает",
-        TodoStatus.IN_PROGRESS: "🔄 В работе",
-        TodoStatus.COMPLETED: "✅ Выполнено",
-        TodoStatus.CANCELLED: "❌ Отменено"
+        "pending": "⏳ Ожидает",
+        "in_progress": "🔄 В работе",
+        "completed": "✅ Выполнено",
+        "cancelled": "❌ Отменено"
     }
     
     lines = [
@@ -117,7 +119,7 @@ def format_todo(todo: "Todo", timezone: str = DEFAULT_TIMEZONE) -> str:
     return "\n".join(lines)
 
 
-def format_todos_list(todos: list, timezone: str = DEFAULT_TIMEZONE) -> str:
+def format_todos_list(todos: List["Todo"], timezone: str = DEFAULT_TIMEZONE) -> str:
     """Format list of todos for display"""
     if not todos:
         return "📋 Список задач пуст\n\nИспользуйте /newtodo для создания задачи"
@@ -142,7 +144,7 @@ def format_todos_list(todos: list, timezone: str = DEFAULT_TIMEZONE) -> str:
     return "\n".join(lines)
 
 
-def format_reminders_list(reminders: list, timezone: str = DEFAULT_TIMEZONE) -> str:
+def format_reminders_list(reminders: List["Reminder"], timezone: str = DEFAULT_TIMEZONE) -> str:
     """Format list of reminders for display"""
     if not reminders:
         return "⏰ Напоминаний нет\n\nИспользуйте /newreminder для создания напоминания"
@@ -150,9 +152,7 @@ def format_reminders_list(reminders: list, timezone: str = DEFAULT_TIMEZONE) -> 
     lines = ["⏰ <b>Ваши напоминания:</b>\n"]
     
     for i, reminder in enumerate(reminders, 1):
-        from models.reminder import ReminderStatus
-        
-        status_emoji = "🔔" if reminder.status == ReminderStatus.PENDING else "✅" if reminder.status == ReminderStatus.COMPLETED else "⏸️"
+        status_emoji = "🔔" if reminder.status == "pending" else "✅" if reminder.status == "completed" else "⏸️"
         recurrence_icon = "🔄" if reminder.is_recurring else ""
         
         title = reminder.title[:35] + "..." if len(reminder.title) > 35 else reminder.title
@@ -162,31 +162,3 @@ def format_reminders_list(reminders: list, timezone: str = DEFAULT_TIMEZONE) -> 
         lines.append(f"   📅 {time_str}")
     
     return "\n".join(lines)
-
-
-def format_statistics(
-    total_todos: int,
-    completed_todos: int,
-    pending_todos: int,
-    overdue_todos: int,
-    total_reminders: int,
-    active_reminders: int,
-    completed_reminders: int
-) -> str:
-    """Format statistics for display"""
-    completion_rate = (completed_todos / total_todos * 100) if total_todos > 0 else 0
-    
-    return f"""📊 <b>Ваша статистика</b>
-
-<b>📋 Задачи:</b>
-├ Всего: {total_todos}
-├ Выполнено: {completed_todos} ✅
-├ В ожидании: {pending_todos} ⏳
-├ Просрочено: {overdue_todos} ⚠️
-└ Процент выполнения: {completion_rate:.1f}%
-
-<b>⏰ Напоминания:</b>
-├ Всего: {total_reminders}
-├ Активных: {active_reminders} 🔔
-└ Выполнено: {completed_reminders} ✅
-"""
