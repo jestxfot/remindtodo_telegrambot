@@ -13,6 +13,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
 from storage.models import RecurrenceType, ReminderStatus
+from handlers.auth import get_crypto_for_user
+
+
+async def get_user_storage(user_id: int):
+    """Get user storage with authentication"""
+    crypto = get_crypto_for_user(user_id)
+    if not crypto:
+        return None
+    return await storage.get_user_storage(user_id, crypto)
 from utils.keyboards import (
     get_main_keyboard, 
     get_cancel_keyboard,
@@ -34,7 +43,10 @@ class ReminderStates(StatesGroup):
 
 async def show_reminders_list(message: Message):
     """Show list of user's reminders"""
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     reminders = await user_storage.get_reminders()
     
     text = format_reminders_list(reminders, user_storage.user.timezone)
@@ -82,7 +94,10 @@ async def process_reminder_text(message: Message, state: FSMContext):
         await message.answer("Создание напоминания отменено", reply_markup=get_main_keyboard())
         return
     
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     timezone = user_storage.user.timezone
     
     # Try to parse datetime from the text
@@ -136,7 +151,10 @@ async def process_reminder_time(message: Message, state: FSMContext):
         await message.answer("Создание напоминания отменено", reply_markup=get_main_keyboard())
         return
     
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     timezone = user_storage.user.timezone
     
     remind_at = parse_datetime(text, timezone)
@@ -182,7 +200,10 @@ async def cb_reminder_view(callback: CallbackQuery):
     """View reminder details"""
     reminder_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminder = await user_storage.get_reminder(reminder_id)
     
     if not reminder:
@@ -217,7 +238,10 @@ async def cb_recurrence_set(callback: CallbackQuery):
     reminder_id = parts[1]
     recurrence_str = parts[2]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminder = await user_storage.update_reminder(
         reminder_id, 
         recurrence_type=recurrence_str
@@ -250,7 +274,10 @@ async def cb_reminder_delete(callback: CallbackQuery):
     """Delete reminder"""
     reminder_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     deleted = await user_storage.delete_reminder(reminder_id)
     
     if deleted:
@@ -265,7 +292,10 @@ async def cb_reminder_back(callback: CallbackQuery):
     """Go back to reminder view"""
     reminder_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminder = await user_storage.get_reminder(reminder_id)
     
     if not reminder:
@@ -292,7 +322,10 @@ async def cb_reminders_page(callback: CallbackQuery):
     """Handle reminders pagination"""
     page = int(callback.data.split(":")[1])
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminders = await user_storage.get_reminders()
     
     text = format_reminders_list(reminders, user_storage.user.timezone)

@@ -14,7 +14,16 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
+from handlers.auth import get_crypto_for_user
 from crypto.encryption import SecurePasswordGenerator
+
+
+async def get_user_storage(user_id: int):
+    """Get user storage with authentication"""
+    crypto = get_crypto_for_user(user_id)
+    if not crypto:
+        return None
+    return await storage.get_user_storage(user_id, crypto)
 from utils.keyboards import get_main_keyboard, get_cancel_keyboard
 
 router = Router()
@@ -116,7 +125,10 @@ def get_generator_keyboard():
 
 async def show_passwords_list(message: Message):
     """Show list of user's passwords"""
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     passwords = await user_storage.get_passwords()
     
     if not passwords:
@@ -278,7 +290,10 @@ async def process_notes(message: Message, state: FSMContext):
     
     data = await state.get_data()
     
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     pwd = await user_storage.create_password(
         service_name=data["service_name"],
         username=data["username"],
@@ -303,7 +318,10 @@ async def process_notes(message: Message, state: FSMContext):
 @router.callback_query(F.data == "pwd_list")
 async def cb_pwd_list(callback: CallbackQuery):
     """Show passwords list"""
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     passwords = await user_storage.get_passwords()
     
     if not passwords:
@@ -323,7 +341,10 @@ async def cb_pwd_page(callback: CallbackQuery):
     """Handle password pagination"""
     page = int(callback.data.split(":")[1])
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     passwords = await user_storage.get_passwords()
     
     text = f"🔐 <b>Хранилище паролей ({len(passwords)})</b>"
@@ -340,7 +361,10 @@ async def cb_pwd_view(callback: CallbackQuery):
     """View password entry (without showing password)"""
     pwd_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     pwd_data = await user_storage.get_password_decrypted(pwd_id)
     
     if not pwd_data:
@@ -378,7 +402,10 @@ async def cb_pwd_show(callback: CallbackQuery):
     """Show password (temporary display)"""
     pwd_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     pwd_data = await user_storage.get_password_decrypted(pwd_id)
     
     if not pwd_data:
@@ -397,7 +424,10 @@ async def cb_pwd_copy(callback: CallbackQuery):
     """Copy password to clipboard hint"""
     pwd_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     pwd_data = await user_storage.get_password_decrypted(pwd_id)
     
     if not pwd_data:
@@ -428,7 +458,10 @@ async def cb_pwd_fav(callback: CallbackQuery):
     """Toggle favorite status"""
     pwd_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     pwd = await user_storage.get_password(pwd_id)
     
     if pwd:
@@ -457,7 +490,10 @@ async def cb_pwd_delete(callback: CallbackQuery):
     """Delete password"""
     pwd_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     deleted = await user_storage.delete_password(pwd_id)
     
     if deleted:
@@ -557,7 +593,10 @@ async def process_search(message: Message, state: FSMContext):
         await show_passwords_list(message)
         return
     
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     passwords = await user_storage.search_passwords(text)
     
     await state.clear()

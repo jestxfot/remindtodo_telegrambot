@@ -14,7 +14,16 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
+from handlers.auth import get_crypto_for_user
 from utils.keyboards import get_main_keyboard, get_cancel_keyboard
+
+
+async def get_user_storage(user_id: int):
+    """Get user storage with authentication"""
+    crypto = get_crypto_for_user(user_id)
+    if not crypto:
+        return None
+    return await storage.get_user_storage(user_id, crypto)
 
 router = Router()
 
@@ -82,7 +91,10 @@ def get_note_keyboard(note_id: str):
 
 async def show_notes_list(message: Message):
     """Show list of user's notes"""
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     notes = await user_storage.get_notes()
     
     if not notes:
@@ -171,7 +183,10 @@ async def process_note_content(message: Message, state: FSMContext):
             return
         
         # Create note
-        user_storage = await storage.get_user_storage(message.from_user.id)
+        user_storage = await get_user_storage(message.from_user.id)
+        if not user_storage:
+            await message.answer("🔒 Разблокируйте хранилище: /unlock")
+            return
         note = await user_storage.create_note(
             title=title,
             content=current_content
@@ -204,7 +219,10 @@ async def process_note_content(message: Message, state: FSMContext):
 @router.callback_query(F.data == "notes_list")
 async def cb_notes_list(callback: CallbackQuery):
     """Show notes list"""
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     notes = await user_storage.get_notes()
     
     if not notes:
@@ -224,7 +242,10 @@ async def cb_notes_page(callback: CallbackQuery):
     """Handle notes pagination"""
     page = int(callback.data.split(":")[1])
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     notes = await user_storage.get_notes()
     
     text = f"📝 <b>Ваши заметки ({len(notes)})</b>\n\n🔐 Все заметки зашифрованы"
@@ -241,7 +262,10 @@ async def cb_note_view(callback: CallbackQuery):
     """View note with decrypted content"""
     note_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     result = await user_storage.get_note_decrypted(note_id)
     
     if not result:
@@ -272,7 +296,10 @@ async def cb_note_pin(callback: CallbackQuery):
     """Toggle note pin status"""
     note_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     note = await user_storage.get_note(note_id)
     
     if note:
@@ -305,7 +332,10 @@ async def cb_note_delete(callback: CallbackQuery):
     """Delete note"""
     note_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     deleted = await user_storage.delete_note(note_id)
     
     if deleted:
@@ -364,7 +394,10 @@ async def process_edit_content(message: Message, state: FSMContext):
     data = await state.get_data()
     note_id = data.get("note_id")
     
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     note = await user_storage.update_note(note_id, content=text)
     
     await state.clear()

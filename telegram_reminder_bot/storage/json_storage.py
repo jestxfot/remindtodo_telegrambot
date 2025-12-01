@@ -1,35 +1,39 @@
 """
-Encrypted JSON Storage System with P2P support
+Encrypted JSON Storage System with Master Password Protection
+
+Security:
+- All data encrypted with AES-256-GCM
+- Encryption key derived from user's master password via PBKDF2
+- Password NEVER stored - only hash for verification
+- Each user has their own encrypted JSON file
 """
 import os
 import json
 import asyncio
 import aiofiles
-import hashlib
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Callable
+from typing import Optional, List, Dict, Any
 from pathlib import Path
 import uuid
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from crypto.encryption import CryptoManager, derive_key_from_password
+from crypto.encryption import CryptoManager
 from storage.models import User, Reminder, Todo, Note, Password, UserData
 from config import DATA_DIR
 
 
 class EncryptedJSONStorage:
     """
-    Encrypted JSON file storage with automatic saving
+    Encrypted JSON file storage with master password protection
     
-    All data is encrypted using AES-256-GCM before saving to disk.
-    Each user has their own encrypted JSON file.
+    All data is encrypted using AES-256-GCM.
+    Key is derived from user's master password.
     """
     
     def __init__(self, data_dir: str = DATA_DIR):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        self._user_storages: Dict[int, 'UserStorage'] = {}
         self._locks: Dict[int, asyncio.Lock] = {}
     
     def _get_lock(self, user_id: int) -> asyncio.Lock:
@@ -42,13 +46,11 @@ class EncryptedJSONStorage:
         """Get path to user's encrypted data file"""
         return self.data_dir / f"user_{user_id}.encrypted.json"
     
-    async def get_user_storage(self, user_id: int, password: Optional[str] = None) -> 'UserStorage':
-        """Get or create user storage"""
-        if user_id not in self._user_storages:
-            storage = UserStorage(self, user_id, password)
-            await storage.load()
-            self._user_storages[user_id] = storage
-        return self._user_storages[user_id]
+    async def get_user_storage(self, user_id: int, crypto: CryptoManager) -> 'UserStorage':
+        """Get user storage with provided crypto manager"""
+        storage = UserStorage(self, user_id, crypto)
+        await storage.load()
+        return storage
     
     async def save_user_data(self, user_id: int, data: UserData, crypto: CryptoManager) -> None:
         """Save encrypted user data to file"""
@@ -67,15 +69,11 @@ class EncryptedJSONStorage:
                 "data": encrypted_content
             }
             
-            if crypto.salt:
-                file_data["salt"] = __import__('base64').b64encode(crypto.salt).decode('utf-8')
-            
-            # Write atomically (write to temp, then rename)
+            # Write atomically
             temp_path = filepath.with_suffix('.tmp')
             async with aiofiles.open(temp_path, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(file_data, ensure_ascii=False, indent=2))
             
-            # Atomic rename
             os.replace(temp_path, filepath)
     
     async def load_user_data(self, user_id: int, crypto: CryptoManager) -> Optional[UserData]:
@@ -99,17 +97,6 @@ class EncryptedJSONStorage:
         """Check if user data file exists"""
         return self._get_user_file(user_id).exists()
     
-    async def delete_user_data(self, user_id: int) -> bool:
-        """Delete user data file"""
-        async with self._get_lock(user_id):
-            filepath = self._get_user_file(user_id)
-            if filepath.exists():
-                os.remove(filepath)
-                if user_id in self._user_storages:
-                    del self._user_storages[user_id]
-                return True
-            return False
-    
     async def get_all_user_ids(self) -> List[int]:
         """Get list of all user IDs with stored data"""
         user_ids = []
@@ -120,86 +107,28 @@ class EncryptedJSONStorage:
             except (IndexError, ValueError):
                 pass
         return user_ids
-    
-    def export_data(self, user_id: int) -> Optional[str]:
-        """Export user's encrypted file content (for P2P sync)"""
-        filepath = self._get_user_file(user_id)
-        if filepath.exists():
-            with open(filepath, 'r', encoding='utf-8') as f:
-                return f.read()
-        return None
-    
-    async def import_data(self, user_id: int, encrypted_json: str) -> bool:
-        """Import encrypted data from P2P sync"""
-        async with self._get_lock(user_id):
-            filepath = self._get_user_file(user_id)
-            
-            # Validate JSON
-            try:
-                data = json.loads(encrypted_json)
-                if "data" not in data or "algorithm" not in data:
-                    return False
-            except json.JSONDecodeError:
-                return False
-            
-            async with aiofiles.open(filepath, 'w', encoding='utf-8') as f:
-                await f.write(encrypted_json)
-            
-            # Clear cache
-            if user_id in self._user_storages:
-                del self._user_storages[user_id]
-            
-            return True
 
 
 class UserStorage:
     """
-    User-specific storage handler
+    User-specific storage handler with encryption
     
-    Provides methods to manage user's data with automatic encryption/decryption
+    Requires authenticated crypto manager from user's session.
     """
     
-    def __init__(self, storage: EncryptedJSONStorage, user_id: int, password: Optional[str] = None):
+    def __init__(self, storage: EncryptedJSONStorage, user_id: int, crypto: CryptoManager):
         self.storage = storage
         self.user_id = user_id
+        self._crypto = crypto
         self._data: Optional[UserData] = None
-        self._crypto: Optional[CryptoManager] = None
-        self._password = password
         self._auto_save = True
     
     async def load(self) -> None:
         """Load user data from storage"""
-        filepath = self.storage._get_user_file(self.user_id)
-        
-        if filepath.exists():
-            # Load existing data
-            async with aiofiles.open(filepath, 'r', encoding='utf-8') as f:
-                content = await f.read()
-            
-            file_data = json.loads(content)
-            
-            # Initialize crypto with password if using password-based encryption
-            if self._password and "salt" in file_data:
-                import base64
-                salt = base64.b64decode(file_data["salt"])
-                key, _ = derive_key_from_password(self._password, salt)
-                self._crypto = CryptoManager(master_key=key)
-                self._crypto._salt = salt
-            else:
-                # Use user_id-based key for simple encryption
-                self._crypto = CryptoManager(password=str(self.user_id))
-            
-            try:
-                self._data = await self.storage.load_user_data(self.user_id, self._crypto)
-            except Exception:
-                # If decryption fails, start fresh
-                self._data = None
-        else:
-            # New user - create crypto
-            if self._password:
-                self._crypto = CryptoManager(password=self._password)
-            else:
-                self._crypto = CryptoManager(password=str(self.user_id))
+        try:
+            self._data = await self.storage.load_user_data(self.user_id, self._crypto)
+        except Exception:
+            self._data = None
         
         # Initialize empty data if needed
         if self._data is None:
@@ -303,7 +232,6 @@ class UserStorage:
         todos = self._data.todos.copy()
         if not include_completed:
             todos = [t for t in todos if t.status not in ['completed', 'cancelled']]
-        # Sort by priority (urgent first) then by order
         priority_order = {'urgent': 0, 'high': 1, 'medium': 2, 'low': 3}
         todos.sort(key=lambda t: (priority_order.get(t.priority, 2), t.order))
         return todos
@@ -331,7 +259,6 @@ class UserStorage:
     # Note methods
     async def create_note(self, title: str, content: str, **kwargs) -> Note:
         """Create a new encrypted note"""
-        # Encrypt the content
         encrypted_content = self._crypto.encrypt(content)
         
         note = Note(
@@ -361,9 +288,8 @@ class UserStorage:
         return None
     
     async def get_notes(self) -> List[Note]:
-        """Get all notes (content encrypted)"""
+        """Get all notes"""
         notes = self._data.notes.copy()
-        # Sort: pinned first, then by updated_at
         notes.sort(key=lambda n: (not n.is_pinned, n.updated_at), reverse=True)
         return notes
     
@@ -402,7 +328,6 @@ class UserStorage:
         **kwargs
     ) -> Password:
         """Create a new encrypted password entry"""
-        # Encrypt sensitive fields
         encrypted_username = self._crypto.encrypt(username)
         encrypted_password = self._crypto.encrypt(password)
         encrypted_notes = self._crypto.encrypt(notes) if notes else None
@@ -423,7 +348,7 @@ class UserStorage:
         return pwd
     
     async def get_password(self, password_id: str) -> Optional[Password]:
-        """Get password entry by ID (encrypted)"""
+        """Get password entry by ID"""
         for p in self._data.passwords:
             if p.id == password_id:
                 return p
@@ -449,9 +374,8 @@ class UserStorage:
         return None
     
     async def get_passwords(self) -> List[Password]:
-        """Get all password entries (encrypted)"""
+        """Get all password entries"""
         passwords = self._data.passwords.copy()
-        # Sort: favorites first, then by service name
         passwords.sort(key=lambda p: (not p.is_favorite, p.service_name.lower()))
         return passwords
     
@@ -495,7 +419,7 @@ class UserStorage:
         return False
     
     async def mark_password_used(self, password_id: str) -> Optional[Password]:
-        """Mark password as used (update last_used)"""
+        """Mark password as used"""
         return await self.update_password(password_id, last_used=datetime.utcnow().isoformat())
     
     # Statistics

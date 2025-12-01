@@ -13,6 +13,15 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
 from storage.models import TodoPriority, TodoStatus
+from handlers.auth import get_crypto_for_user
+
+
+async def get_user_storage(user_id: int):
+    """Get user storage with authentication"""
+    crypto = get_crypto_for_user(user_id)
+    if not crypto:
+        return None
+    return await storage.get_user_storage(user_id, crypto)
 from utils.keyboards import (
     get_main_keyboard,
     get_cancel_keyboard,
@@ -34,7 +43,10 @@ class TodoStates(StatesGroup):
 
 async def show_todos_list(message: Message):
     """Show list of user's todos"""
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     todos = await user_storage.get_todos()
     
     text = format_todos_list(todos, user_storage.user.timezone)
@@ -77,7 +89,10 @@ async def process_todo_title(message: Message, state: FSMContext):
         await message.answer("Создание задачи отменено", reply_markup=get_main_keyboard())
         return
     
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     todo = await user_storage.create_todo(title=text)
     
     await state.clear()
@@ -100,7 +115,10 @@ async def cb_todo_view(callback: CallbackQuery):
     """View todo details"""
     todo_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     todo = await user_storage.get_todo(todo_id)
     
     if not todo:
@@ -171,7 +189,10 @@ async def cb_todo_delete(callback: CallbackQuery):
     """Delete todo"""
     todo_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     deleted = await user_storage.delete_todo(todo_id)
     
     if deleted:
@@ -252,7 +273,10 @@ async def process_deadline(message: Message, state: FSMContext):
     data = await state.get_data()
     todo_id = data.get("todo_id")
     
-    user_storage = await storage.get_user_storage(message.from_user.id)
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     
     if text in ["нет", "без дедлайна", "убрать", "удалить"]:
         todo = await user_storage.update_todo(todo_id, deadline=None)
@@ -300,7 +324,10 @@ async def cb_todo_back(callback: CallbackQuery):
     """Go back to todo view"""
     todo_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     todo = await user_storage.get_todo(todo_id)
     
     if not todo:
@@ -327,7 +354,10 @@ async def cb_todos_page(callback: CallbackQuery):
     """Handle todos pagination"""
     page = int(callback.data.split(":")[1])
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     todos = await user_storage.get_todos()
     
     text = format_todos_list(todos, user_storage.user.timezone)

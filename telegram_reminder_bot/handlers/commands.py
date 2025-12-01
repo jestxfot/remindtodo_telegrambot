@@ -10,9 +10,18 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
+from handlers.auth import get_crypto_for_user, is_authenticated
 from utils.keyboards import get_main_keyboard, get_settings_keyboard
 
 router = Router()
+
+
+async def get_user_storage(user_id: int):
+    """Get user storage with authentication"""
+    crypto = get_crypto_for_user(user_id)
+    if not crypto:
+        return None
+    return await storage.get_user_storage(user_id, crypto)
 
 
 @router.message(CommandStart())
@@ -20,44 +29,39 @@ async def cmd_start(message: Message, state: FSMContext):
     """Handle /start command"""
     await state.clear()
     
-    # Initialize user storage (creates encrypted file if needed)
-    user_storage = await storage.get_user_storage(message.from_user.id)
-    await user_storage.update_user(
-        username=message.from_user.username,
-        first_name=message.from_user.first_name,
-        last_name=message.from_user.last_name
-    )
+    from handlers.auth import user_has_password
     
-    welcome_text = f"""👋 <b>Привет, {message.from_user.first_name or 'друг'}!</b>
+    if not user_has_password(message.from_user.id):
+        welcome_text = f"""👋 <b>Привет, {message.from_user.first_name or 'друг'}!</b>
 
-Я бот для управления задачами, напоминаниями, заметками и паролями.
+Я безопасный бот для управления задачами, напоминаниями, заметками и паролями.
 
 <b>🔐 Безопасность:</b>
+• Вы создаёте мастер-пароль
 • Все данные шифруются AES-256-GCM
-• Пароли и заметки хранятся зашифрованными
+• Пароль нигде не хранится
 • Только вы можете расшифровать данные
 
-<b>📋 Возможности:</b>
-• ⏰ Напоминания с постоянными уведомлениями
-• 📝 Зашифрованные заметки
-• 🔐 Безопасное хранилище паролей
-• ✅ Список задач с приоритетами
+<b>Для начала работы создайте мастер-пароль:</b>
 
-<b>📋 Команды:</b>
-/reminders - Напоминания
-/todos - Задачи  
-/notes - Заметки 🔐
-/passwords - Пароли 🔐
-/stats - Статистика
-/settings - Настройки
+/unlock — создать пароль и начать"""
+    else:
+        if is_authenticated(message.from_user.id):
+            welcome_text = f"""👋 <b>С возвращением, {message.from_user.first_name or 'друг'}!</b>
+
+🔓 Хранилище разблокировано
 
 Выбери действие на клавиатуре! 👇"""
+            await message.answer(welcome_text, reply_markup=get_main_keyboard(), parse_mode="HTML")
+            return
+        else:
+            welcome_text = f"""👋 <b>Привет, {message.from_user.first_name or 'друг'}!</b>
+
+🔒 Хранилище заблокировано
+
+/unlock — разблокировать"""
     
-    await message.answer(
-        welcome_text,
-        reply_markup=get_main_keyboard(),
-        parse_mode="HTML"
-    )
+    await message.answer(welcome_text, parse_mode="HTML")
 
 
 @router.message(Command("help"))
@@ -65,33 +69,31 @@ async def cmd_help(message: Message):
     """Handle /help command"""
     help_text = """📚 <b>Справка по боту</b>
 
+<b>🔐 Безопасность:</b>
+• /unlock — разблокировать хранилище
+• /lock — заблокировать хранилище
+• /changepassword — сменить мастер-пароль
+
 <b>🔔 Напоминания:</b>
-• /newreminder - создать напоминание
-• /reminders - список напоминаний
-Постоянные уведомления пока не отреагируете!
+• /newreminder — создать напоминание
+• /reminders — список напоминаний
 
-<b>📋 Задачи (TODO):</b>
-• /newtodo - создать задачу
-• /todos - список задач
-Приоритеты: 🟢🟡🟠🔴
+<b>📋 Задачи:</b>
+• /newtodo — создать задачу
+• /todos — список задач
 
-<b>📝 Заметки:</b>
-• /newnote - создать заметку
-• /notes - список заметок
-🔐 Все заметки зашифрованы!
+<b>📝 Заметки (зашифрованы):</b>
+• /newnote — создать заметку
+• /notes — список заметок
 
-<b>🔐 Пароли:</b>
-• /newpassword - добавить пароль
-• /passwords - хранилище паролей
-🔒 AES-256-GCM шифрование
+<b>🔐 Пароли (зашифрованы):</b>
+• /newpassword — добавить пароль
+• /passwords — хранилище паролей
 
-<b>🎲 Генератор паролей:</b>
-В разделе паролей можно сгенерировать
-надёжный случайный пароль
-
-<b>🔄 Синхронизация:</b>
-Данные автоматически сохраняются
-в зашифрованном JSON файле"""
+<b>⚠️ Важно:</b>
+• Запомните мастер-пароль — восстановить невозможно!
+• Хранилище блокируется после 30 минут неактивности
+• Все данные зашифрованы AES-256-GCM"""
     
     await message.answer(help_text, parse_mode="HTML")
 
@@ -99,9 +101,12 @@ async def cmd_help(message: Message):
 @router.message(Command("stats"))
 async def cmd_stats(message: Message):
     """Handle /stats command"""
-    user_storage = await storage.get_user_storage(message.from_user.id)
-    stats = await user_storage.get_statistics()
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     
+    stats = await user_storage.get_statistics()
     todos = stats["todos"]
     reminders = stats["reminders"]
     
@@ -112,15 +117,12 @@ async def cmd_stats(message: Message):
 <b>📋 Задачи:</b>
 ├ Всего: {todos["total"]}
 ├ Выполнено: {todos["completed"]} ✅
-├ В ожидании: {todos["pending"]} ⏳
 ├ В работе: {todos["in_progress"]} 🔄
 ├ Просрочено: {todos["overdue"]} ⚠️
-└ Процент выполнения: {completion_rate:.1f}%
+└ Выполнение: {completion_rate:.0f}%
 
 <b>⏰ Напоминания:</b>
-├ Всего: {reminders["total"]}
-├ Ожидают: {reminders["pending"]} 🔔
-├ Активных: {reminders["active"]} 🔊
+├ Активных: {reminders["pending"]} 🔔
 └ Выполнено: {reminders["completed"]} ✅
 
 <b>📝 Заметки:</b> {stats["notes"]} 🔐
@@ -134,23 +136,22 @@ async def cmd_stats(message: Message):
 @router.message(Command("settings"))
 async def cmd_settings(message: Message):
     """Handle /settings command"""
-    user_storage = await storage.get_user_storage(message.from_user.id)
-    user = user_storage.user
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
     
     settings_text = f"""⚙️ <b>Настройки</b>
 
-🌍 Часовой пояс: <code>{user.timezone}</code>
-
+🌍 Часовой пояс: <code>{user_storage.user.timezone}</code>
 🔐 Шифрование: AES-256-GCM ✅
-💾 Формат данных: JSON (зашифрованный)
+⏱️ Автоблокировка: 30 минут
 
-Выберите, что хотите изменить:"""
+<b>Управление паролем:</b>
+/changepassword — сменить мастер-пароль
+/lock — заблокировать сейчас"""
     
-    await message.answer(
-        settings_text,
-        reply_markup=get_settings_keyboard(),
-        parse_mode="HTML"
-    )
+    await message.answer(settings_text, reply_markup=get_settings_keyboard(), parse_mode="HTML")
 
 
 @router.message(F.text == "📝 Задачи")
@@ -211,7 +212,4 @@ async def btn_settings(message: Message):
 async def btn_cancel(message: Message, state: FSMContext):
     """Handle Cancel button"""
     await state.clear()
-    await message.answer(
-        "Действие отменено",
-        reply_markup=get_main_keyboard()
-    )
+    await message.answer("Действие отменено", reply_markup=get_main_keyboard())

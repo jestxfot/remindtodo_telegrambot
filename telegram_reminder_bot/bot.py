@@ -1,13 +1,12 @@
 """
-Telegram Reminder Bot with TODO, Notes, and Password Vault
+Telegram Reminder Bot with Master Password Protection
 
-Features:
-- Reminders with persistent notifications
-- TODO list with priorities
-- Encrypted notes (AES-256-GCM)
-- Secure password vault (AES-256-GCM)
-- P2P sync support
-- All data stored in encrypted JSON
+Security Features:
+- Master password protection (user-defined)
+- AES-256-GCM encryption for all data
+- Password derived key (PBKDF2 with 600,000 iterations)
+- Auto-lock after inactivity
+- Password NEVER stored - only hash
 """
 import asyncio
 import logging
@@ -18,9 +17,11 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
-from config import BOT_TOKEN, PERSISTENT_REMINDER_INTERVAL, P2P_ENABLED, P2P_PORT, DATA_DIR
+from config import BOT_TOKEN, PERSISTENT_REMINDER_INTERVAL, P2P_ENABLED, P2P_PORT, DATA_DIR, AUTO_LOCK_MINUTES
 from storage.json_storage import storage
+from middleware.auth_middleware import AuthMiddleware
 from handlers import (
+    auth_router,
     commands_router,
     reminders_router,
     todos_router,
@@ -28,6 +29,7 @@ from handlers import (
     passwords_router,
     callbacks_router
 )
+from handlers.auth import is_authenticated, get_crypto_for_user
 from utils.keyboards import get_reminder_keyboard
 from utils.formatters import format_reminder
 
@@ -45,7 +47,12 @@ bot = Bot(
 )
 dp = Dispatcher()
 
-# Include routers
+# Add authentication middleware
+dp.message.middleware(AuthMiddleware())
+dp.callback_query.middleware(AuthMiddleware())
+
+# Include routers (auth first!)
+dp.include_router(auth_router)
 dp.include_router(commands_router)
 dp.include_router(reminders_router)
 dp.include_router(todos_router)
@@ -55,32 +62,36 @@ dp.include_router(callbacks_router)
 
 
 async def check_reminders():
-    """Check and trigger due reminders"""
+    """Check and trigger due reminders for authenticated users"""
     while True:
         try:
             user_ids = await storage.get_all_user_ids()
             now = datetime.utcnow()
             
             for user_id in user_ids:
+                # Only check for authenticated users
+                if not is_authenticated(user_id):
+                    continue
+                
+                crypto = get_crypto_for_user(user_id)
+                if not crypto:
+                    continue
+                
                 try:
-                    user_storage = await storage.get_user_storage(user_id)
+                    user_storage = await storage.get_user_storage(user_id, crypto)
                     reminders = await user_storage.get_reminders()
                     
                     for reminder in reminders:
                         if reminder.status == "pending" and reminder.remind_at_dt:
                             if reminder.remind_at_dt <= now:
-                                # Activate reminder
                                 await user_storage.update_reminder(
                                     reminder.id,
                                     status="active",
                                     last_notification_at=now.isoformat()
                                 )
-                                
-                                # Send notification
-                                await send_reminder_notification(user_id, reminder, is_initial=True)
+                                await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=True)
                         
                         elif reminder.status == "active" and reminder.is_persistent:
-                            # Check if need to send persistent notification
                             if reminder.last_notification_at:
                                 last_notif = datetime.fromisoformat(reminder.last_notification_at)
                                 if (now - last_notif).total_seconds() >= reminder.persistent_interval:
@@ -88,17 +99,16 @@ async def check_reminders():
                                         reminder.id,
                                         last_notification_at=now.isoformat()
                                     )
-                                    await send_reminder_notification(user_id, reminder, is_initial=False)
+                                    await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=False)
                         
                         elif reminder.status == "snoozed" and reminder.snoozed_until_dt:
                             if reminder.snoozed_until_dt <= now:
-                                # Reactivate reminder
                                 await user_storage.update_reminder(
                                     reminder.id,
                                     status="active",
                                     last_notification_at=now.isoformat()
                                 )
-                                await send_reminder_notification(user_id, reminder, is_initial=True)
+                                await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=True)
                 
                 except Exception as e:
                     logger.error(f"Error checking reminders for user {user_id}: {e}")
@@ -106,16 +116,14 @@ async def check_reminders():
         except Exception as e:
             logger.error(f"Error in reminder check loop: {e}")
         
-        await asyncio.sleep(10)  # Check every 10 seconds
+        await asyncio.sleep(10)
 
 
-async def send_reminder_notification(user_id: int, reminder, is_initial: bool = True):
+async def send_reminder_notification(user_id: int, reminder, timezone: str, is_initial: bool = True):
     """Send reminder notification to user"""
     try:
-        user_storage = await storage.get_user_storage(user_id)
-        
         if is_initial:
-            text = f"🔔 <b>НАПОМИНАНИЕ!</b>\n\n{format_reminder(reminder, user_storage.user.timezone)}"
+            text = f"🔔 <b>НАПОМИНАНИЕ!</b>\n\n{format_reminder(reminder, timezone)}"
         else:
             text = f"🔔 <b>Напоминание активно!</b>\n\n📝 {reminder.title}\n\nОтметьте выполненным или отложите."
         
@@ -138,17 +146,19 @@ async def set_bot_commands():
     """Set bot commands for the menu"""
     commands = [
         BotCommand(command="start", description="🚀 Начать работу"),
+        BotCommand(command="unlock", description="🔓 Разблокировать хранилище"),
+        BotCommand(command="lock", description="🔒 Заблокировать"),
         BotCommand(command="help", description="📚 Справка"),
         BotCommand(command="newreminder", description="🔔 Новое напоминание"),
-        BotCommand(command="reminders", description="📋 Список напоминаний"),
+        BotCommand(command="reminders", description="📋 Напоминания"),
         BotCommand(command="newtodo", description="📝 Новая задача"),
-        BotCommand(command="todos", description="✅ Список задач"),
+        BotCommand(command="todos", description="✅ Задачи"),
         BotCommand(command="newnote", description="📝 Новая заметка"),
         BotCommand(command="notes", description="📝 Заметки"),
         BotCommand(command="newpassword", description="🔐 Новый пароль"),
-        BotCommand(command="passwords", description="🔐 Хранилище паролей"),
+        BotCommand(command="passwords", description="🔐 Пароли"),
         BotCommand(command="stats", description="📊 Статистика"),
-        BotCommand(command="settings", description="⚙️ Настройки"),
+        BotCommand(command="changepassword", description="🔑 Сменить пароль"),
     ]
     await bot.set_my_commands(commands)
 
@@ -156,6 +166,9 @@ async def set_bot_commands():
 async def on_startup():
     """Startup tasks"""
     logger.info("Starting bot...")
+    logger.info(f"🔐 Security: Master password protection enabled")
+    logger.info(f"🔒 Encryption: AES-256-GCM")
+    logger.info(f"⏱️ Auto-lock: {AUTO_LOCK_MINUTES} minutes")
     
     # Create data directory
     Path(DATA_DIR).mkdir(parents=True, exist_ok=True)
@@ -177,7 +190,6 @@ async def on_startup():
         logger.info(f"P2P sync server started on port {P2P_PORT}")
     
     logger.info("Bot started successfully!")
-    logger.info("🔐 All data is encrypted with AES-256-GCM")
 
 
 async def on_shutdown():

@@ -11,7 +11,16 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
+from handlers.auth import get_crypto_for_user
 from utils.keyboards import get_reminder_keyboard, get_snooze_keyboard, get_settings_keyboard
+
+
+async def get_user_storage(user_id: int):
+    """Get user storage with authentication"""
+    crypto = get_crypto_for_user(user_id)
+    if not crypto:
+        return None
+    return await storage.get_user_storage(user_id, crypto)
 from utils.formatters import format_reminder
 
 router = Router()
@@ -22,7 +31,10 @@ async def cb_reminder_complete(callback: CallbackQuery):
     """Mark reminder as completed"""
     reminder_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminder = await user_storage.update_reminder(reminder_id, status="completed")
     
     if not reminder:
@@ -81,7 +93,10 @@ async def cb_reminder_snooze(callback: CallbackQuery):
         else:
             snooze_text = f"на {minutes // 60} ч"
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminder = await user_storage.get_reminder(reminder_id)
     
     if not reminder:
@@ -110,7 +125,10 @@ async def cb_reminder_snooze_back(callback: CallbackQuery):
     """Go back from snooze menu"""
     reminder_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminder = await user_storage.get_reminder(reminder_id)
     
     if not reminder:
@@ -132,7 +150,10 @@ async def cb_reminder_mute(callback: CallbackQuery):
     """Mute reminder"""
     reminder_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     reminder = await user_storage.update_reminder(reminder_id, with_sound=False)
     
     if not reminder:
@@ -185,7 +206,10 @@ async def cb_set_timezone(callback: CallbackQuery):
     """Set user timezone"""
     timezone = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     await user_storage.update_user(timezone=timezone)
     
     await callback.answer(f"✅ Часовой пояс: {timezone}")
@@ -198,7 +222,10 @@ async def cb_set_timezone(callback: CallbackQuery):
 @router.callback_query(F.data == "settings_back")
 async def cb_settings_back(callback: CallbackQuery):
     """Go back to settings"""
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     
     await callback.message.edit_text(
         f"⚙️ <b>Настройки</b>\n\n"
@@ -251,7 +278,10 @@ async def cb_set_interval(callback: CallbackQuery):
 @router.callback_query(F.data == "settings_export")
 async def cb_settings_export(callback: CallbackQuery):
     """Export user data info"""
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
     stats = await user_storage.get_statistics()
     
     await callback.message.edit_text(

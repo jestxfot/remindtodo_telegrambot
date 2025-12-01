@@ -36,4 +36,4 @@ P2P_SECRET = os.getenv("P2P_SECRET", "")  # Shared secret for P2P auth
 # Password vault settings
 PASSWORD_MIN_LENGTH = 8
 PASSWORD_REQUIRE_SPECIAL = True
-AUTO_LOCK_MINUTES = 5  # Auto-lock password vault after inactivity
+AUTO_LOCK_MINUTES = 30  # Auto-lock vault after inactivity (minutes)

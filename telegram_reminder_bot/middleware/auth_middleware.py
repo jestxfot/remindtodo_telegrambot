@@ -1,0 +1,85 @@
+"""
+Authentication Middleware
+
+Checks if user is authenticated before accessing protected features.
+"""
+from typing import Callable, Dict, Any, Awaitable
+from aiogram import BaseMiddleware
+from aiogram.types import Message, CallbackQuery, TelegramObject
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+class AuthMiddleware(BaseMiddleware):
+    """
+    Middleware to check authentication for protected commands
+    """
+    
+    # Commands that don't require authentication
+    PUBLIC_COMMANDS = {'/start', '/help', '/unlock', '/lock'}
+    
+    # Callback prefixes that don't require auth
+    PUBLIC_CALLBACKS = {'settings_'}
+    
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        from handlers.auth import is_authenticated, user_has_password
+        
+        # Get user_id from event
+        user_id = None
+        if isinstance(event, Message):
+            user_id = event.from_user.id
+            text = event.text or ""
+            
+            # Check if public command
+            if any(text.startswith(cmd) for cmd in self.PUBLIC_COMMANDS):
+                return await handler(event, data)
+            
+            # Check if in auth state (FSM)
+            state = data.get("state")
+            if state:
+                current_state = await state.get_state()
+                if current_state and current_state.startswith("AuthStates:"):
+                    return await handler(event, data)
+        
+        elif isinstance(event, CallbackQuery):
+            user_id = event.from_user.id
+            callback_data = event.data or ""
+            
+            # Check if public callback
+            if any(callback_data.startswith(prefix) for prefix in self.PUBLIC_CALLBACKS):
+                return await handler(event, data)
+        
+        # Check authentication
+        if user_id:
+            if not user_has_password(user_id):
+                # New user - redirect to setup
+                if isinstance(event, Message):
+                    await event.answer(
+                        "🔐 <b>Добро пожаловать!</b>\n\n"
+                        "Для начала работы создайте мастер-пароль.\n\n"
+                        "Используйте /unlock",
+                        parse_mode="HTML"
+                    )
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("🔐 Сначала создайте пароль: /unlock", show_alert=True)
+                return
+            
+            if not is_authenticated(user_id):
+                # Not logged in
+                if isinstance(event, Message):
+                    await event.answer(
+                        "🔒 Хранилище заблокировано\n\n"
+                        "Используйте /unlock для разблокировки"
+                    )
+                elif isinstance(event, CallbackQuery):
+                    await event.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+                return
+        
+        return await handler(event, data)
