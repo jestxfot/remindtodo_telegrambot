@@ -192,19 +192,36 @@ class Note:
 
 
 @dataclass
+class PasswordHistoryEntry:
+    """Entry in password history"""
+    password: str  # Encrypted old password
+    changed_at: str  # When it was changed
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'PasswordHistoryEntry':
+        return cls(**data)
+
+
+@dataclass
 class Password:
     """Encrypted password entry"""
     id: str
     user_id: int
-    service_name: str  # Website/app name
+    service_name: str  # Website/app name (title/name)
     username: str  # Login/email (encrypted)
     password: str  # Password (encrypted)
     url: Optional[str] = None
     notes: Optional[str] = None  # Encrypted notes
+    totp_secret: Optional[str] = None  # 2FA TOTP secret (encrypted)
+    recovery_codes: Optional[str] = None  # 2FA recovery codes (encrypted, comma-separated)
     category: str = "general"
     is_favorite: bool = False
     last_used: Optional[str] = None
     password_changed_at: Optional[str] = None
+    password_history: List[Dict[str, str]] = field(default_factory=list)  # List of old passwords
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     
@@ -213,7 +230,22 @@ class Password:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Password':
+        # Handle legacy data without new fields
+        if 'totp_secret' not in data:
+            data['totp_secret'] = None
+        if 'recovery_codes' not in data:
+            data['recovery_codes'] = None
+        if 'password_history' not in data:
+            data['password_history'] = []
         return cls(**data)
+    
+    @property
+    def has_2fa(self) -> bool:
+        return bool(self.totp_secret or self.recovery_codes)
+    
+    @property
+    def history_count(self) -> int:
+        return len(self.password_history)
 
 
 @dataclass

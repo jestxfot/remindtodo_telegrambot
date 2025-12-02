@@ -325,12 +325,16 @@ class UserStorage:
         password: str,
         url: Optional[str] = None,
         notes: Optional[str] = None,
+        totp_secret: Optional[str] = None,
+        recovery_codes: Optional[str] = None,
         **kwargs
     ) -> Password:
         """Create a new encrypted password entry"""
         encrypted_username = self._crypto.encrypt(username)
         encrypted_password = self._crypto.encrypt(password)
         encrypted_notes = self._crypto.encrypt(notes) if notes else None
+        encrypted_totp = self._crypto.encrypt(totp_secret) if totp_secret else None
+        encrypted_recovery = self._crypto.encrypt(recovery_codes) if recovery_codes else None
         
         pwd = Password(
             id=str(uuid.uuid4()),
@@ -340,7 +344,10 @@ class UserStorage:
             password=encrypted_password,
             url=url,
             notes=encrypted_notes,
+            totp_secret=encrypted_totp,
+            recovery_codes=encrypted_recovery,
             password_changed_at=datetime.utcnow().isoformat(),
+            password_history=[],
             **kwargs
         )
         self._data.passwords.append(pwd)
@@ -358,6 +365,14 @@ class UserStorage:
         """Get password with decrypted fields"""
         pwd = await self.get_password(password_id)
         if pwd:
+            # Decrypt password history
+            decrypted_history = []
+            for entry in pwd.password_history:
+                decrypted_history.append({
+                    "password": self._crypto.decrypt_to_string(entry["password"]),
+                    "changed_at": entry["changed_at"]
+                })
+            
             return {
                 "id": pwd.id,
                 "service_name": pwd.service_name,
@@ -365,10 +380,15 @@ class UserStorage:
                 "password": self._crypto.decrypt_to_string(pwd.password),
                 "url": pwd.url,
                 "notes": self._crypto.decrypt_to_string(pwd.notes) if pwd.notes else None,
+                "totp_secret": self._crypto.decrypt_to_string(pwd.totp_secret) if pwd.totp_secret else None,
+                "recovery_codes": self._crypto.decrypt_to_string(pwd.recovery_codes) if pwd.recovery_codes else None,
+                "has_2fa": pwd.has_2fa,
                 "category": pwd.category,
                 "is_favorite": pwd.is_favorite,
                 "last_used": pwd.last_used,
                 "password_changed_at": pwd.password_changed_at,
+                "password_history": decrypted_history,
+                "history_count": pwd.history_count,
                 "created_at": pwd.created_at
             }
         return None
@@ -390,24 +410,61 @@ class UserStorage:
         username: Optional[str] = None,
         password: Optional[str] = None,
         notes: Optional[str] = None,
+        totp_secret: Optional[str] = None,
+        recovery_codes: Optional[str] = None,
+        save_to_history: bool = True,
         **kwargs
     ) -> Optional[Password]:
-        """Update a password entry"""
+        """Update a password entry with history tracking"""
         pwd = await self.get_password(password_id)
         if pwd:
             if username:
                 pwd.username = self._crypto.encrypt(username)
             if password:
+                # Save old password to history before changing
+                if save_to_history and pwd.password:
+                    history_entry = {
+                        "password": pwd.password,  # Already encrypted
+                        "changed_at": pwd.password_changed_at or datetime.utcnow().isoformat()
+                    }
+                    if pwd.password_history is None:
+                        pwd.password_history = []
+                    pwd.password_history.append(history_entry)
+                    # Keep only last 10 passwords in history
+                    if len(pwd.password_history) > 10:
+                        pwd.password_history = pwd.password_history[-10:]
+                
                 pwd.password = self._crypto.encrypt(password)
                 pwd.password_changed_at = datetime.utcnow().isoformat()
+            
             if notes is not None:
                 pwd.notes = self._crypto.encrypt(notes) if notes else None
+            
+            # Handle 2FA fields
+            if totp_secret is not None:
+                pwd.totp_secret = self._crypto.encrypt(totp_secret) if totp_secret else None
+            if recovery_codes is not None:
+                pwd.recovery_codes = self._crypto.encrypt(recovery_codes) if recovery_codes else None
+            
             for key, value in kwargs.items():
-                if hasattr(pwd, key) and key not in ['username', 'password', 'notes']:
+                if hasattr(pwd, key) and key not in ['username', 'password', 'notes', 'totp_secret', 'recovery_codes']:
                     setattr(pwd, key, value)
             pwd.updated_at = datetime.utcnow().isoformat()
             await self._auto_save_if_enabled()
         return pwd
+    
+    async def get_password_history(self, password_id: str) -> List[Dict[str, str]]:
+        """Get decrypted password history"""
+        pwd = await self.get_password(password_id)
+        if pwd and pwd.password_history:
+            history = []
+            for entry in pwd.password_history:
+                history.append({
+                    "password": self._crypto.decrypt_to_string(entry["password"]),
+                    "changed_at": entry["changed_at"]
+                })
+            return history
+        return []
     
     async def delete_password(self, password_id: str) -> bool:
         """Delete a password entry"""
