@@ -41,7 +41,7 @@ def get_cancel_keyboard() -> ReplyKeyboardMarkup:
     return builder.as_markup(resize_keyboard=True)
 
 
-def get_reminder_keyboard(reminder_id: str, is_active: bool = False) -> InlineKeyboardMarkup:
+def get_reminder_keyboard(reminder_id: str, is_active: bool = False, is_recurring: bool = False) -> InlineKeyboardMarkup:
     """Get inline keyboard for reminder actions"""
     builder = InlineKeyboardBuilder()
     
@@ -57,11 +57,18 @@ def get_reminder_keyboard(reminder_id: str, is_active: bool = False) -> InlineKe
     else:
         # Regular reminder actions
         builder.row(
-            InlineKeyboardButton(text="✏️ Изменить", callback_data=f"reminder_edit:{reminder_id}"),
-            InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"reminder_delete:{reminder_id}")
+            InlineKeyboardButton(text="✅ Выполнено", callback_data=f"reminder_complete:{reminder_id}"),
+            InlineKeyboardButton(text="✏️ Изменить", callback_data=f"reminder_edit:{reminder_id}")
         )
         builder.row(
-            InlineKeyboardButton(text="🔄 Повторять", callback_data=f"reminder_recurrence:{reminder_id}")
+            InlineKeyboardButton(
+                text="🔄 Повторение" if not is_recurring else "🔄 Повторение ✓",
+                callback_data=f"reminder_recurrence:{reminder_id}"
+            )
+        )
+        builder.row(
+            InlineKeyboardButton(text="📦 В архив", callback_data=f"reminder_archive:{reminder_id}"),
+            InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"reminder_delete:{reminder_id}")
         )
     
     return builder.as_markup()
@@ -111,7 +118,7 @@ def get_recurrence_keyboard(reminder_id: str) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def get_todo_keyboard(todo_id: str) -> InlineKeyboardMarkup:
+def get_todo_keyboard(todo_id: str, is_recurring: bool = False) -> InlineKeyboardMarkup:
     """Get inline keyboard for todo actions"""
     builder = InlineKeyboardBuilder()
     
@@ -120,12 +127,18 @@ def get_todo_keyboard(todo_id: str) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🔄 В работе", callback_data=f"todo_progress:{todo_id}")
     )
     builder.row(
-        InlineKeyboardButton(text="✏️ Изменить", callback_data=f"todo_edit:{todo_id}"),
-        InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"todo_delete:{todo_id}")
-    )
-    builder.row(
         InlineKeyboardButton(text="⏰ Дедлайн", callback_data=f"todo_deadline:{todo_id}"),
         InlineKeyboardButton(text="🎯 Приоритет", callback_data=f"todo_priority:{todo_id}")
+    )
+    builder.row(
+        InlineKeyboardButton(
+            text="🔁 Повторение" if not is_recurring else "🔁 Повторение ✓",
+            callback_data=f"todo_recurrence:{todo_id}"
+        )
+    )
+    builder.row(
+        InlineKeyboardButton(text="📦 В архив", callback_data=f"todo_archive:{todo_id}"),
+        InlineKeyboardButton(text="🗑️ Удалить", callback_data=f"todo_delete:{todo_id}")
     )
     
     return builder.as_markup()
@@ -161,10 +174,11 @@ def get_todos_list_keyboard(todos: list, page: int = 0, per_page: int = 5) -> In
     for todo in page_todos:
         status_emoji = todo.status_emoji
         priority_emoji = todo.priority_emoji
-        title = todo.title[:30] + "..." if len(todo.title) > 30 else todo.title
+        recurrence_emoji = todo.recurrence_emoji if hasattr(todo, 'recurrence_emoji') else ""
+        title = todo.title[:25] + "..." if len(todo.title) > 25 else todo.title
         builder.row(
             InlineKeyboardButton(
-                text=f"{status_emoji} {priority_emoji} {title}",
+                text=f"{status_emoji} {priority_emoji}{recurrence_emoji} {title}",
                 callback_data=f"todo_view:{todo.id}"
             )
         )
@@ -180,7 +194,8 @@ def get_todos_list_keyboard(todos: list, page: int = 0, per_page: int = 5) -> In
         builder.row(*nav_buttons)
     
     builder.row(
-        InlineKeyboardButton(text="➕ Новая задача", callback_data="todo_new")
+        InlineKeyboardButton(text="➕ Новая задача", callback_data="todo_new"),
+        InlineKeyboardButton(text="📦 Архив", callback_data="todos_archive")
     )
     
     return builder.as_markup()

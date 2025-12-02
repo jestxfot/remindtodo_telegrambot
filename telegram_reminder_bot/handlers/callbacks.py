@@ -28,14 +28,15 @@ router = Router()
 
 @router.callback_query(F.data.startswith("reminder_complete:"))
 async def cb_reminder_complete(callback: CallbackQuery):
-    """Mark reminder as completed"""
+    """Mark reminder as completed (handles recurring reminders)"""
     reminder_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
     if not user_storage:
         await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
         return
-    reminder = await user_storage.update_reminder(reminder_id, status="completed")
+    
+    reminder, was_archived = await user_storage.complete_reminder(reminder_id)
     
     if not reminder:
         await callback.answer("Напоминание не найдено")
@@ -43,11 +44,20 @@ async def cb_reminder_complete(callback: CallbackQuery):
     
     await callback.answer("✅ Выполнено!")
     
-    if reminder.is_recurring:
+    if was_archived:
         await callback.message.edit_text(
-            f"✅ <b>Напоминание выполнено!</b>\n\n"
-            f"📝 {reminder.title}\n\n"
-            f"🔄 Следующее повторение будет создано автоматически.",
+            f"✅ <b>Напоминание завершено!</b>\n\n"
+            f"📝 {reminder.title}\n"
+            f"🔄 Выполнено раз: {reminder.recurrence_count}\n\n"
+            f"📦 Перемещено в архив (достигнута дата окончания)",
+            parse_mode="HTML"
+        )
+    elif reminder.is_recurring:
+        from utils.formatters import format_reminder
+        formatted = format_reminder(reminder, user_storage.user.timezone)
+        await callback.message.edit_text(
+            f"✅ <b>Выполнено! Следующее:</b>\n\n{formatted}",
+            reply_markup=get_reminder_keyboard(reminder.id, is_recurring=True),
             parse_mode="HTML"
         )
     else:
@@ -56,6 +66,33 @@ async def cb_reminder_complete(callback: CallbackQuery):
             f"📝 {reminder.title}",
             parse_mode="HTML"
         )
+
+
+@router.callback_query(F.data.startswith("reminder_archive:"))
+async def cb_reminder_archive(callback: CallbackQuery):
+    """Archive reminder"""
+    reminder_id = callback.data.split(":")[1]
+    
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
+    reminder = await user_storage.get_reminder(reminder_id)
+    if not reminder:
+        await callback.answer("Напоминание не найдено")
+        return
+    
+    archived = await user_storage.archive_reminder(reminder_id)
+    
+    if archived:
+        await callback.answer("📦 Напоминание перемещено в архив")
+        await callback.message.edit_text(
+            f"📦 Напоминание «{reminder.title}» перемещено в архив\n\n"
+            "Используйте /archive для просмотра"
+        )
+    else:
+        await callback.answer("Ошибка архивирования")
 
 
 @router.callback_query(F.data.startswith("reminder_snooze_menu:"))

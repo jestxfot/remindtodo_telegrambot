@@ -19,7 +19,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crypto.encryption import CryptoManager
-from storage.models import User, Reminder, Todo, Note, Password, UserData
+from storage.models import User, Reminder, Todo, Note, Password, UserData, ArchivedItem, RecurrenceType
 from config import DATA_DIR
 
 
@@ -247,6 +247,116 @@ class UserStorage:
             await self._auto_save_if_enabled()
         return todo
     
+    async def complete_todo(self, todo_id: str) -> tuple[Optional[Todo], bool]:
+        """
+        Complete a todo. For recurring todos, creates next iteration.
+        Returns: (todo, was_archived)
+        """
+        from dateutil.relativedelta import relativedelta
+        
+        todo = await self.get_todo(todo_id)
+        if not todo:
+            return None, False
+        
+        now = datetime.utcnow()
+        todo.completed_at = now.isoformat()
+        todo.recurrence_count += 1
+        
+        # Check if recurring
+        if todo.is_recurring:
+            # Check if end date reached
+            if todo.recurrence_end_date:
+                end_dt = datetime.fromisoformat(todo.recurrence_end_date)
+                if now >= end_dt:
+                    # End date reached - archive
+                    todo.status = "completed"
+                    await self._auto_save_if_enabled()
+                    await self.archive_todo(todo_id)
+                    return todo, True
+            
+            # Calculate next deadline
+            if todo.deadline:
+                current_deadline = datetime.fromisoformat(todo.deadline)
+                interval = todo.recurrence_interval or 1
+                
+                if todo.recurrence_type == RecurrenceType.DAILY.value:
+                    next_deadline = current_deadline + relativedelta(days=interval)
+                elif todo.recurrence_type == RecurrenceType.WEEKLY.value:
+                    next_deadline = current_deadline + relativedelta(weeks=interval)
+                elif todo.recurrence_type == RecurrenceType.MONTHLY.value:
+                    next_deadline = current_deadline + relativedelta(months=interval)
+                elif todo.recurrence_type == RecurrenceType.YEARLY.value:
+                    next_deadline = current_deadline + relativedelta(years=interval)
+                else:
+                    next_deadline = current_deadline + relativedelta(days=interval)
+                
+                todo.deadline = next_deadline.isoformat()
+            
+            # Reset status for next iteration
+            todo.status = "pending"
+            todo.completed_at = None
+            await self._auto_save_if_enabled()
+            return todo, False
+        else:
+            # Non-recurring - just mark completed
+            todo.status = "completed"
+            await self._auto_save_if_enabled()
+            return todo, False
+    
+    async def complete_reminder(self, reminder_id: str) -> tuple[Optional[Reminder], bool]:
+        """
+        Complete a reminder. For recurring reminders, creates next iteration.
+        Returns: (reminder, was_archived)
+        """
+        from dateutil.relativedelta import relativedelta
+        
+        reminder = await self.get_reminder(reminder_id)
+        if not reminder:
+            return None, False
+        
+        now = datetime.utcnow()
+        reminder.recurrence_count += 1
+        
+        # Check if recurring
+        if reminder.is_recurring:
+            # Check if end date reached
+            if reminder.recurrence_end_date:
+                end_dt = datetime.fromisoformat(reminder.recurrence_end_date)
+                if now >= end_dt:
+                    # End date reached - archive
+                    reminder.status = "completed"
+                    await self._auto_save_if_enabled()
+                    await self.archive_reminder(reminder_id)
+                    return reminder, True
+            
+            # Calculate next remind_at
+            current_remind = datetime.fromisoformat(reminder.remind_at)
+            interval = reminder.recurrence_interval or 1
+            
+            if reminder.recurrence_type == RecurrenceType.DAILY.value:
+                next_remind = current_remind + relativedelta(days=interval)
+            elif reminder.recurrence_type == RecurrenceType.WEEKLY.value:
+                next_remind = current_remind + relativedelta(weeks=interval)
+            elif reminder.recurrence_type == RecurrenceType.MONTHLY.value:
+                next_remind = current_remind + relativedelta(months=interval)
+            elif reminder.recurrence_type == RecurrenceType.YEARLY.value:
+                next_remind = current_remind + relativedelta(years=interval)
+            else:
+                next_remind = current_remind + relativedelta(days=interval)
+            
+            reminder.remind_at = next_remind.isoformat()
+            reminder.status = "pending"
+            reminder.last_notification_at = None
+            reminder.snooze_count = 0
+            reminder.snoozed_until = None
+            await self._auto_save_if_enabled()
+            return reminder, False
+        else:
+            # Non-recurring - just mark completed
+            reminder.status = "completed"
+            await self._auto_save_if_enabled()
+            return reminder, False
+    
     async def delete_todo(self, todo_id: str) -> bool:
         """Delete a todo"""
         for i, t in enumerate(self._data.todos):
@@ -255,6 +365,93 @@ class UserStorage:
                 await self._auto_save_if_enabled()
                 return True
         return False
+    
+    async def archive_todo(self, todo_id: str) -> bool:
+        """Archive a todo (move to archive instead of deleting)"""
+        for i, t in enumerate(self._data.todos):
+            if t.id == todo_id:
+                # Remove from active todos
+                todo = self._data.todos.pop(i)
+                # Add to archive
+                archived = ArchivedItem(
+                    item_type="todo",
+                    data=todo.to_dict(),
+                    archived_at=datetime.utcnow().isoformat()
+                )
+                self._data.archive.append(archived)
+                await self._auto_save_if_enabled()
+                return True
+        return False
+    
+    async def archive_reminder(self, reminder_id: str) -> bool:
+        """Archive a reminder (move to archive instead of deleting)"""
+        for i, r in enumerate(self._data.reminders):
+            if r.id == reminder_id:
+                # Remove from active reminders
+                reminder = self._data.reminders.pop(i)
+                # Add to archive
+                archived = ArchivedItem(
+                    item_type="reminder",
+                    data=reminder.to_dict(),
+                    archived_at=datetime.utcnow().isoformat()
+                )
+                self._data.archive.append(archived)
+                await self._auto_save_if_enabled()
+                return True
+        return False
+    
+    async def get_archive(self, item_type: Optional[str] = None) -> List[ArchivedItem]:
+        """Get archived items, optionally filtered by type"""
+        archive = self._data.archive.copy()
+        if item_type:
+            archive = [a for a in archive if a.item_type == item_type]
+        # Sort by archived_at descending (newest first)
+        archive.sort(key=lambda a: a.archived_at, reverse=True)
+        return archive
+    
+    async def restore_from_archive(self, archived_at: str) -> bool:
+        """Restore item from archive"""
+        for i, item in enumerate(self._data.archive):
+            if item.archived_at == archived_at:
+                archived = self._data.archive.pop(i)
+                
+                if archived.item_type == "todo":
+                    todo = Todo.from_dict(archived.data)
+                    todo.status = "pending"
+                    todo.archived_at = None
+                    self._data.todos.append(todo)
+                elif archived.item_type == "reminder":
+                    reminder = Reminder.from_dict(archived.data)
+                    reminder.status = "pending"
+                    reminder.archived_at = None
+                    self._data.reminders.append(reminder)
+                
+                await self._auto_save_if_enabled()
+                return True
+        return False
+    
+    async def delete_from_archive(self, archived_at: str) -> bool:
+        """Permanently delete item from archive"""
+        for i, item in enumerate(self._data.archive):
+            if item.archived_at == archived_at:
+                self._data.archive.pop(i)
+                await self._auto_save_if_enabled()
+                return True
+        return False
+    
+    async def clear_archive(self, item_type: Optional[str] = None) -> int:
+        """Clear archive, optionally only specific type. Returns count of deleted items."""
+        if item_type:
+            original_len = len(self._data.archive)
+            self._data.archive = [a for a in self._data.archive if a.item_type != item_type]
+            deleted = original_len - len(self._data.archive)
+        else:
+            deleted = len(self._data.archive)
+            self._data.archive = []
+        
+        if deleted > 0:
+            await self._auto_save_if_enabled()
+        return deleted
     
     # Note methods
     async def create_note(self, title: str, content: str, **kwargs) -> Note:

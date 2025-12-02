@@ -315,6 +315,21 @@ class Password:
 
 
 @dataclass
+class ArchivedItem:
+    """Archived reminder or todo"""
+    item_type: str  # "reminder" or "todo"
+    data: Dict[str, Any]
+    archived_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'ArchivedItem':
+        return cls(**data)
+
+
+@dataclass
 class UserData:
     """Complete user data structure for JSON storage"""
     user: User
@@ -322,6 +337,7 @@ class UserData:
     todos: List[Todo] = field(default_factory=list)
     notes: List[Note] = field(default_factory=list)
     passwords: List[Password] = field(default_factory=list)
+    archive: List[ArchivedItem] = field(default_factory=list)  # Archived items
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -329,7 +345,8 @@ class UserData:
             "reminders": [r.to_dict() for r in self.reminders],
             "todos": [t.to_dict() for t in self.todos],
             "notes": [n.to_dict() for n in self.notes],
-            "passwords": [p.to_dict() for p in self.passwords]
+            "passwords": [p.to_dict() for p in self.passwords],
+            "archive": [a.to_dict() for a in self.archive]
         }
     
     @classmethod
@@ -339,5 +356,6 @@ class UserData:
             reminders=[Reminder.from_dict(r) for r in data.get("reminders", [])],
             todos=[Todo.from_dict(t) for t in data.get("todos", [])],
             notes=[Note.from_dict(n) for n in data.get("notes", [])],
-            passwords=[Password.from_dict(p) for p in data.get("passwords", [])]
+            passwords=[Password.from_dict(p) for p in data.get("passwords", [])],
+            archive=[ArchivedItem.from_dict(a) for a in data.get("archive", [])]
         )
