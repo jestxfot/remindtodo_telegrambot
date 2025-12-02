@@ -132,7 +132,7 @@ async def cb_todo_view(callback: CallbackQuery):
     formatted = format_todo(todo, user_storage.user.timezone)
     await callback.message.edit_text(
         formatted,
-        reply_markup=get_todo_keyboard(todo.id),
+        reply_markup=get_todo_keyboard(todo.id, is_recurring=todo.is_recurring),
         parse_mode="HTML"
     )
 
@@ -167,7 +167,7 @@ async def cb_todo_complete(callback: CallbackQuery):
         formatted = format_todo(todo, user_storage.user.timezone)
         await callback.message.edit_text(
             f"✅ Выполнено! Следующая итерация:\n\n{formatted}",
-            reply_markup=get_todo_keyboard(todo.id),
+            reply_markup=get_todo_keyboard(todo.id, is_recurring=True),
             parse_mode="HTML"
         )
     else:
@@ -175,7 +175,7 @@ async def cb_todo_complete(callback: CallbackQuery):
         formatted = format_todo(todo, user_storage.user.timezone)
         await callback.message.edit_text(
             formatted,
-            reply_markup=get_todo_keyboard(todo.id),
+            reply_markup=get_todo_keyboard(todo.id, is_recurring=False),
             parse_mode="HTML"
         )
 
@@ -185,7 +185,11 @@ async def cb_todo_progress(callback: CallbackQuery):
     """Set todo status to in progress"""
     todo_id = callback.data.split(":")[1]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
     todo = await user_storage.update_todo(
         todo_id,
         status=TodoStatus.IN_PROGRESS.value
@@ -200,7 +204,7 @@ async def cb_todo_progress(callback: CallbackQuery):
     formatted = format_todo(todo, user_storage.user.timezone)
     await callback.message.edit_text(
         formatted,
-        reply_markup=get_todo_keyboard(todo.id),
+        reply_markup=get_todo_keyboard(todo.id, is_recurring=todo.is_recurring),
         parse_mode="HTML"
     )
 
@@ -291,6 +295,11 @@ async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
         await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
         return
     
+    todo = await user_storage.get_todo(todo_id)
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
     if rec_type == "none":
         await user_storage.update_todo(
             todo_id,
@@ -304,12 +313,20 @@ async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
         formatted = format_todo(todo, user_storage.user.timezone)
         await callback.message.edit_text(
             formatted,
-            reply_markup=get_todo_keyboard(todo.id),
+            reply_markup=get_todo_keyboard(todo.id, is_recurring=False),
             parse_mode="HTML"
         )
         return
     
-    # Set recurrence type and ask for end date
+    # Check if todo has deadline - required for recurring tasks
+    if not todo.deadline:
+        # Set deadline to tomorrow by default for recurring tasks
+        from datetime import datetime, timedelta
+        tomorrow = datetime.utcnow() + timedelta(days=1)
+        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
+        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+    
+    # Set recurrence type
     await user_storage.update_todo(
         todo_id,
         recurrence_type=rec_type,
@@ -317,7 +334,7 @@ async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
     )
     
     await state.set_state(TodoStates.setting_recurrence_end)
-    await state.update_data(todo_id=todo_id)
+    await state.update_data(todo_id=todo_id, rec_type=rec_type)
     
     rec_names = {
         "daily": "ежедневно",
@@ -356,10 +373,19 @@ async def process_recurrence_end(message: Message, state: FSMContext):
         await state.clear()
         
         todo = await user_storage.get_todo(todo_id)
+        rec_names = {
+            "daily": "Ежедневно",
+            "weekly": "Еженедельно",
+            "monthly": "Ежемесячно",
+            "yearly": "Ежегодно"
+        }
+        formatted = format_todo(todo, user_storage.user.timezone)
         await message.answer(
-            f"✅ Повторение настроено (бессрочно)\n\n"
-            f"📋 {todo.title}",
-            reply_markup=get_main_keyboard()
+            f"✅ <b>Повторение настроено!</b>\n\n"
+            f"🔁 {rec_names.get(todo.recurrence_type, 'Повтор')} (бессрочно)\n\n"
+            f"{formatted}",
+            reply_markup=get_main_keyboard(),
+            parse_mode="HTML"
         )
         return
     
@@ -379,9 +405,17 @@ async def process_recurrence_end(message: Message, state: FSMContext):
     await state.clear()
     
     todo = await user_storage.get_todo(todo_id)
+    rec_names = {
+        "daily": "Ежедневно",
+        "weekly": "Еженедельно",
+        "monthly": "Ежемесячно",
+        "yearly": "Ежегодно"
+    }
     formatted = format_todo(todo, user_storage.user.timezone)
     await message.answer(
-        f"✅ Повторение настроено!\n\n{formatted}",
+        f"✅ <b>Повторение настроено!</b>\n\n"
+        f"🔁 {rec_names.get(todo.recurrence_type, 'Повтор')} до {end_date.strftime('%d.%m.%Y')}\n\n"
+        f"{formatted}",
         reply_markup=get_main_keyboard(),
         parse_mode="HTML"
     )
@@ -406,7 +440,11 @@ async def cb_priority_set(callback: CallbackQuery):
     todo_id = parts[1]
     priority_str = parts[2]
     
-    user_storage = await storage.get_user_storage(callback.from_user.id)
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
     todo = await user_storage.update_todo(todo_id, priority=priority_str)
     
     if not todo:
@@ -425,7 +463,7 @@ async def cb_priority_set(callback: CallbackQuery):
     formatted = format_todo(todo, user_storage.user.timezone)
     await callback.message.edit_text(
         formatted,
-        reply_markup=get_todo_keyboard(todo.id),
+        reply_markup=get_todo_keyboard(todo.id, is_recurring=todo.is_recurring),
         parse_mode="HTML"
     )
 
@@ -522,7 +560,7 @@ async def cb_todo_back(callback: CallbackQuery):
     formatted = format_todo(todo, user_storage.user.timezone)
     await callback.message.edit_text(
         formatted,
-        reply_markup=get_todo_keyboard(todo.id),
+        reply_markup=get_todo_keyboard(todo.id, is_recurring=todo.is_recurring),
         parse_mode="HTML"
     )
 

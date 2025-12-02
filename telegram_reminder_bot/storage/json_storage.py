@@ -274,23 +274,32 @@ class UserStorage:
                     await self.archive_todo(todo_id)
                     return todo, True
             
-            # Calculate next deadline
-            if todo.deadline:
-                current_deadline = datetime.fromisoformat(todo.deadline)
-                interval = todo.recurrence_interval or 1
-                
-                if todo.recurrence_type == RecurrenceType.DAILY.value:
-                    next_deadline = current_deadline + relativedelta(days=interval)
-                elif todo.recurrence_type == RecurrenceType.WEEKLY.value:
-                    next_deadline = current_deadline + relativedelta(weeks=interval)
-                elif todo.recurrence_type == RecurrenceType.MONTHLY.value:
-                    next_deadline = current_deadline + relativedelta(months=interval)
-                elif todo.recurrence_type == RecurrenceType.YEARLY.value:
-                    next_deadline = current_deadline + relativedelta(years=interval)
-                else:
-                    next_deadline = current_deadline + relativedelta(days=interval)
-                
-                todo.deadline = next_deadline.isoformat()
+            # Calculate next deadline based on current deadline or now
+            interval = todo.recurrence_interval or 1
+            base_time = datetime.fromisoformat(todo.deadline) if todo.deadline else now
+            
+            if todo.recurrence_type == RecurrenceType.DAILY.value:
+                next_deadline = base_time + relativedelta(days=interval)
+            elif todo.recurrence_type == RecurrenceType.WEEKLY.value:
+                next_deadline = base_time + relativedelta(weeks=interval)
+            elif todo.recurrence_type == RecurrenceType.MONTHLY.value:
+                next_deadline = base_time + relativedelta(months=interval)
+            elif todo.recurrence_type == RecurrenceType.YEARLY.value:
+                next_deadline = base_time + relativedelta(years=interval)
+            else:
+                next_deadline = base_time + relativedelta(days=interval)
+            
+            # Check if next deadline exceeds end date
+            if todo.recurrence_end_date:
+                end_dt = datetime.fromisoformat(todo.recurrence_end_date)
+                if next_deadline > end_dt:
+                    # This was the last iteration - archive
+                    todo.status = "completed"
+                    await self._auto_save_if_enabled()
+                    await self.archive_todo(todo_id)
+                    return todo, True
+            
+            todo.deadline = next_deadline.isoformat()
             
             # Reset status for next iteration
             todo.status = "pending"

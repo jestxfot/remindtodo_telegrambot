@@ -94,6 +94,14 @@ def format_todo(todo: "Todo", timezone: str = DEFAULT_TIMEZONE) -> str:
         "cancelled": "❌ Отменено"
     }
     
+    recurrence_text = {
+        "none": "",
+        "daily": "🔁 Ежедневно",
+        "weekly": "🔁 Еженедельно",
+        "monthly": "🔁 Ежемесячно",
+        "yearly": "🔁 Ежегодно",
+    }
+    
     lines = [
         f"{todo.status_emoji} <b>{todo.title}</b>",
         "",
@@ -110,6 +118,22 @@ def format_todo(todo: "Todo", timezone: str = DEFAULT_TIMEZONE) -> str:
             lines.append(f"⚠️ <b>Просрочено!</b> Дедлайн: {deadline_str}")
         else:
             lines.append(f"📅 Дедлайн: {deadline_str}")
+    
+    # Show recurrence info
+    if hasattr(todo, 'is_recurring') and todo.is_recurring:
+        rec_type = getattr(todo, 'recurrence_type', 'none')
+        rec_line = recurrence_text.get(rec_type, "🔁 Повторяется")
+        
+        if hasattr(todo, 'recurrence_end_date') and todo.recurrence_end_date:
+            end_str = format_datetime(todo.recurrence_end_date, timezone, include_time=False)
+            rec_line += f" до {end_str}"
+        else:
+            rec_line += " (бессрочно)"
+        
+        lines.append(rec_line)
+        
+        if hasattr(todo, 'recurrence_count') and todo.recurrence_count > 0:
+            lines.append(f"✅ Выполнено раз: {todo.recurrence_count}")
     
     if todo.completed_at:
         lines.append(f"✅ Завершено: {format_datetime(todo.completed_at, timezone)}")
@@ -130,7 +154,12 @@ def format_todos_list(todos: List["Todo"], timezone: str = DEFAULT_TIMEZONE) -> 
         status_emoji = todo.status_emoji
         priority_emoji = todo.priority_emoji
         
-        title = todo.title[:40] + "..." if len(todo.title) > 40 else todo.title
+        # Recurrence icon
+        recurrence_icon = ""
+        if hasattr(todo, 'is_recurring') and todo.is_recurring:
+            recurrence_icon = "🔁"
+        
+        title = todo.title[:35] + "..." if len(todo.title) > 35 else todo.title
         
         deadline_info = ""
         if todo.deadline:
@@ -139,7 +168,7 @@ def format_todos_list(todos: List["Todo"], timezone: str = DEFAULT_TIMEZONE) -> 
             else:
                 deadline_info = f" 📅"
         
-        lines.append(f"{i}. {status_emoji}{priority_emoji} {title}{deadline_info}")
+        lines.append(f"{i}. {status_emoji}{priority_emoji}{recurrence_icon} {title}{deadline_info}")
     
     return "\n".join(lines)
 
