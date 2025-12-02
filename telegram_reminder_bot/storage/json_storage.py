@@ -251,6 +251,11 @@ class UserStorage:
         """
         Complete a todo. For recurring todos, creates next iteration.
         Returns: (todo, was_archived)
+        
+        Logic for recurring tasks:
+        - Next deadline is calculated from CURRENT deadline (not from now)
+        - If next deadline is in the past, keep adding intervals until it's in the future
+        - This ensures tasks don't "skip" iterations if completed late
         """
         from dateutil.relativedelta import relativedelta
         
@@ -274,20 +279,32 @@ class UserStorage:
                     await self.archive_todo(todo_id)
                     return todo, True
             
-            # Calculate next deadline based on current deadline or now
+            # Calculate next deadline based on CURRENT deadline (not now!)
             interval = todo.recurrence_interval or 1
             base_time = datetime.fromisoformat(todo.deadline) if todo.deadline else now
             
+            # Calculate interval delta
             if todo.recurrence_type == RecurrenceType.DAILY.value:
-                next_deadline = base_time + relativedelta(days=interval)
+                delta = relativedelta(days=interval)
             elif todo.recurrence_type == RecurrenceType.WEEKLY.value:
-                next_deadline = base_time + relativedelta(weeks=interval)
+                delta = relativedelta(weeks=interval)
             elif todo.recurrence_type == RecurrenceType.MONTHLY.value:
-                next_deadline = base_time + relativedelta(months=interval)
+                delta = relativedelta(months=interval)
             elif todo.recurrence_type == RecurrenceType.YEARLY.value:
-                next_deadline = base_time + relativedelta(years=interval)
+                delta = relativedelta(years=interval)
             else:
-                next_deadline = base_time + relativedelta(days=interval)
+                delta = relativedelta(days=interval)
+            
+            # Add one interval
+            next_deadline = base_time + delta
+            
+            # If next deadline is still in the past, keep adding intervals
+            # until we get a future date (handles late completions)
+            while next_deadline <= now:
+                next_deadline = next_deadline + delta
+                # Safety: don't loop forever
+                if (next_deadline - now).days > 365 * 10:
+                    break
             
             # Check if next deadline exceeds end date
             if todo.recurrence_end_date:
@@ -316,6 +333,10 @@ class UserStorage:
         """
         Complete a reminder. For recurring reminders, creates next iteration.
         Returns: (reminder, was_archived)
+        
+        Logic for recurring reminders:
+        - Next time is calculated from CURRENT remind_at (not from now)
+        - If next time is in the past, keep adding intervals until it's in the future
         """
         from dateutil.relativedelta import relativedelta
         
@@ -338,20 +359,41 @@ class UserStorage:
                     await self.archive_reminder(reminder_id)
                     return reminder, True
             
-            # Calculate next remind_at
+            # Calculate next remind_at from CURRENT time (not now!)
             current_remind = datetime.fromisoformat(reminder.remind_at)
             interval = reminder.recurrence_interval or 1
             
+            # Calculate interval delta
             if reminder.recurrence_type == RecurrenceType.DAILY.value:
-                next_remind = current_remind + relativedelta(days=interval)
+                delta = relativedelta(days=interval)
             elif reminder.recurrence_type == RecurrenceType.WEEKLY.value:
-                next_remind = current_remind + relativedelta(weeks=interval)
+                delta = relativedelta(weeks=interval)
             elif reminder.recurrence_type == RecurrenceType.MONTHLY.value:
-                next_remind = current_remind + relativedelta(months=interval)
+                delta = relativedelta(months=interval)
             elif reminder.recurrence_type == RecurrenceType.YEARLY.value:
-                next_remind = current_remind + relativedelta(years=interval)
+                delta = relativedelta(years=interval)
             else:
-                next_remind = current_remind + relativedelta(days=interval)
+                delta = relativedelta(days=interval)
+            
+            # Add one interval
+            next_remind = current_remind + delta
+            
+            # If next time is still in the past, keep adding intervals
+            while next_remind <= now:
+                next_remind = next_remind + delta
+                # Safety: don't loop forever
+                if (next_remind - now).days > 365 * 10:
+                    break
+            
+            # Check if next remind exceeds end date
+            if reminder.recurrence_end_date:
+                end_dt = datetime.fromisoformat(reminder.recurrence_end_date)
+                if next_remind > end_dt:
+                    # This was the last iteration - archive
+                    reminder.status = "completed"
+                    await self._auto_save_if_enabled()
+                    await self.archive_reminder(reminder_id)
+                    return reminder, True
             
             reminder.remind_at = next_remind.isoformat()
             reminder.status = "pending"
