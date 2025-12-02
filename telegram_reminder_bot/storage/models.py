@@ -86,13 +86,15 @@ class Reminder:
     status: str = ReminderStatus.PENDING.value
     recurrence_type: str = RecurrenceType.NONE.value
     recurrence_interval: Optional[int] = None
-    recurrence_end_date: Optional[str] = None
+    recurrence_end_date: Optional[str] = None  # When recurring reminder ends
+    recurrence_count: int = 0  # How many times reminder has triggered
     is_persistent: bool = True
     persistent_interval: int = 60
     with_sound: bool = True
     snooze_count: int = 0
     snoozed_until: Optional[str] = None
     last_notification_at: Optional[str] = None
+    archived_at: Optional[str] = None  # When moved to archive
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     
@@ -101,6 +103,11 @@ class Reminder:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Reminder':
+        # Handle legacy data
+        if 'recurrence_count' not in data:
+            data['recurrence_count'] = 0
+        if 'archived_at' not in data:
+            data['archived_at'] = None
         return cls(**data)
     
     @property
@@ -114,6 +121,18 @@ class Reminder:
     @property
     def snoozed_until_dt(self) -> Optional[datetime]:
         return str_to_datetime(self.snoozed_until)
+    
+    @property
+    def recurrence_end_dt(self) -> Optional[datetime]:
+        return str_to_datetime(self.recurrence_end_date)
+    
+    @property
+    def is_recurrence_ended(self) -> bool:
+        """Check if recurring reminder has reached its end date"""
+        if not self.is_recurring or not self.recurrence_end_date:
+            return False
+        end_dt = self.recurrence_end_dt
+        return end_dt and datetime.utcnow() > end_dt
 
 
 @dataclass
@@ -127,7 +146,14 @@ class Todo:
     priority: str = TodoPriority.MEDIUM.value
     deadline: Optional[str] = None
     order: int = 0
+    # Recurrence fields
+    recurrence_type: str = RecurrenceType.NONE.value
+    recurrence_interval: Optional[int] = None
+    recurrence_end_date: Optional[str] = None  # When recurring todo ends
+    recurrence_count: int = 0  # How many times todo was completed
+    # Timestamps
     completed_at: Optional[str] = None
+    archived_at: Optional[str] = None  # When moved to archive
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     
@@ -136,11 +162,38 @@ class Todo:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Todo':
+        # Handle legacy data
+        if 'recurrence_type' not in data:
+            data['recurrence_type'] = RecurrenceType.NONE.value
+        if 'recurrence_interval' not in data:
+            data['recurrence_interval'] = None
+        if 'recurrence_end_date' not in data:
+            data['recurrence_end_date'] = None
+        if 'recurrence_count' not in data:
+            data['recurrence_count'] = 0
+        if 'archived_at' not in data:
+            data['archived_at'] = None
         return cls(**data)
     
     @property
     def deadline_dt(self) -> Optional[datetime]:
         return str_to_datetime(self.deadline)
+    
+    @property
+    def recurrence_end_dt(self) -> Optional[datetime]:
+        return str_to_datetime(self.recurrence_end_date)
+    
+    @property
+    def is_recurring(self) -> bool:
+        return self.recurrence_type != RecurrenceType.NONE.value
+    
+    @property
+    def is_recurrence_ended(self) -> bool:
+        """Check if recurring todo has reached its end date"""
+        if not self.is_recurring or not self.recurrence_end_date:
+            return False
+        end_dt = self.recurrence_end_dt
+        return end_dt and datetime.utcnow() > end_dt
     
     @property
     def is_overdue(self) -> bool:
@@ -168,6 +221,19 @@ class Todo:
             TodoStatus.CANCELLED.value: "❌"
         }
         return emojis.get(self.status, "❓")
+    
+    @property
+    def recurrence_emoji(self) -> str:
+        if not self.is_recurring:
+            return ""
+        emojis = {
+            RecurrenceType.DAILY.value: "🔄",
+            RecurrenceType.WEEKLY.value: "📅",
+            RecurrenceType.MONTHLY.value: "🗓️",
+            RecurrenceType.YEARLY.value: "📆",
+            RecurrenceType.CUSTOM.value: "⚙️"
+        }
+        return emojis.get(self.recurrence_type, "🔁")
 
 
 @dataclass
