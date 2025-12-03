@@ -87,7 +87,7 @@ async def cmd_help(message: Message):
 
 <b>📦 Архив:</b>
 • /archive — просмотр архива
-• Завершённые задачи не удаляются
+• /migrate_completed — перенести выполненные в архив
 • Можно восстановить из архива
 
 <b>📝 Заметки (зашифрованы):</b>
@@ -229,3 +229,34 @@ async def btn_cancel(message: Message, state: FSMContext):
     """Handle Cancel button"""
     await state.clear()
     await message.answer("Действие отменено", reply_markup=get_main_keyboard())
+
+
+@router.message(Command("migrate_completed"))
+async def cmd_migrate_completed(message: Message):
+    """Migrate all completed reminders and todos to archive"""
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
+    
+    await message.answer("⏳ Переношу выполненные элементы в архив...")
+    
+    result = await user_storage.migrate_completed_to_archive()
+    
+    total = result["reminders"] + result["todos"]
+    
+    if total == 0:
+        await message.answer(
+            "📦 <b>Миграция завершена</b>\n\n"
+            "Выполненных элементов для переноса не найдено.",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(
+            f"📦 <b>Миграция завершена!</b>\n\n"
+            f"🔔 Напоминаний: {result['reminders']}\n"
+            f"📋 Задач: {result['todos']}\n\n"
+            f"Всего перенесено: {total}\n\n"
+            f"Используйте /archive для просмотра",
+            parse_mode="HTML"
+        )
