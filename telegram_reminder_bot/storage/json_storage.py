@@ -403,10 +403,11 @@ class UserStorage:
             await self._auto_save_if_enabled()
             return reminder, False
         else:
-            # Non-recurring - just mark completed
+            # Non-recurring - mark completed and archive
             reminder.status = "completed"
             await self._auto_save_if_enabled()
-            return reminder, False
+            await self.archive_reminder(reminder_id)
+            return reminder, True
     
     async def delete_todo(self, todo_id: str) -> bool:
         """Delete a todo"""

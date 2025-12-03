@@ -45,25 +45,29 @@ async def cb_reminder_complete(callback: CallbackQuery):
     await callback.answer("✅ Выполнено!")
     
     if was_archived:
-        await callback.message.edit_text(
-            f"✅ <b>Напоминание завершено!</b>\n\n"
-            f"📝 {reminder.title}\n"
-            f"🔄 Выполнено раз: {reminder.recurrence_count}\n\n"
-            f"📦 Перемещено в архив (достигнута дата окончания)",
-            parse_mode="HTML"
-        )
+        if reminder.is_recurring:
+            # Повторяющееся напоминание завершено (достигнута дата окончания)
+            await callback.message.edit_text(
+                f"✅ <b>Напоминание завершено!</b>\n\n"
+                f"📝 {reminder.title}\n"
+                f"🔄 Выполнено раз: {reminder.recurrence_count}\n\n"
+                f"📦 Перемещено в архив (достигнута дата окончания)",
+                parse_mode="HTML"
+            )
+        else:
+            # Неповторяющееся напоминание выполнено
+            await callback.message.edit_text(
+                f"✅ <b>Напоминание выполнено!</b>\n\n"
+                f"📝 {reminder.title}\n\n"
+                f"📦 Перемещено в архив",
+                parse_mode="HTML"
+            )
     elif reminder.is_recurring:
         from utils.formatters import format_reminder
         formatted = format_reminder(reminder, user_storage.user.timezone)
         await callback.message.edit_text(
             f"✅ <b>Выполнено! Следующее:</b>\n\n{formatted}",
             reply_markup=get_reminder_keyboard(reminder.id, is_recurring=True),
-            parse_mode="HTML"
-        )
-    else:
-        await callback.message.edit_text(
-            f"✅ <b>Напоминание выполнено!</b>\n\n"
-            f"📝 {reminder.title}",
             parse_mode="HTML"
         )
 
