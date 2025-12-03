@@ -134,12 +134,6 @@ async def cmd_new_note(message: Message, state: FSMContext):
     await start_create_note(message, state)
 
 
-@router.message(F.text == "📝 Заметки")
-async def btn_notes(message: Message):
-    """Handle Notes button"""
-    await show_notes_list(message)
-
-
 @router.message(NoteStates.waiting_for_title)
 async def process_note_title(message: Message, state: FSMContext):
     """Process note title input"""

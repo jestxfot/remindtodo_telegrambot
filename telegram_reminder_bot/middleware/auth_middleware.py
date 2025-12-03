@@ -41,12 +41,20 @@ class AuthMiddleware(BaseMiddleware):
             if any(text.startswith(cmd) for cmd in self.PUBLIC_COMMANDS):
                 return await handler(event, data)
             
-            # Check if in auth state (FSM)
+            # Check if in any FSM state (user is in the middle of some action)
+            # This includes TodoStates, ReminderStates, NoteStates, PasswordStates, AuthStates, etc.
             state = data.get("state")
             if state:
                 current_state = await state.get_state()
-                if current_state and current_state.startswith("AuthStates:"):
-                    return await handler(event, data)
+                if current_state:
+                    # If user is in any state, they're already authenticated
+                    # (they couldn't have entered the state without being authenticated)
+                    # OR they're in AuthStates which is always allowed
+                    if current_state.startswith("AuthStates:"):
+                        return await handler(event, data)
+                    # For all other states, verify user is still authenticated
+                    if is_authenticated(user_id):
+                        return await handler(event, data)
         
         elif isinstance(event, CallbackQuery):
             user_id = event.from_user.id

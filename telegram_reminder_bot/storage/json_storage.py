@@ -329,10 +329,11 @@ class UserStorage:
             await self._auto_save_if_enabled()
             return todo, False
         else:
-            # Non-recurring - just mark completed
+            # Non-recurring - mark completed and archive
             todo.status = "completed"
             await self._auto_save_if_enabled()
-            return todo, False
+            await self.archive_todo(todo_id)
+            return todo, True
     
     def _to_naive_utc(self, dt: datetime) -> datetime:
         """Convert datetime to naive UTC for comparison"""
@@ -423,10 +424,11 @@ class UserStorage:
             await self._auto_save_if_enabled()
             return reminder, False
         else:
-            # Non-recurring - just mark completed
+            # Non-recurring - mark completed and archive
             reminder.status = "completed"
             await self._auto_save_if_enabled()
-            return reminder, False
+            await self.archive_reminder(reminder_id)
+            return reminder, True
     
     async def delete_todo(self, todo_id: str) -> bool:
         """Delete a todo"""
@@ -523,6 +525,37 @@ class UserStorage:
         if deleted > 0:
             await self._auto_save_if_enabled()
         return deleted
+    
+    async def migrate_completed_to_archive(self) -> dict:
+        """
+        Migrate all completed reminders and todos to archive.
+        Returns dict with counts: {"reminders": X, "todos": Y}
+        """
+        migrated = {"reminders": 0, "todos": 0}
+        
+        # Find completed reminders (non-recurring or with ended recurrence)
+        reminders_to_archive = []
+        for r in self._data.reminders:
+            if r.status == "completed":
+                reminders_to_archive.append(r.id)
+        
+        # Archive completed reminders
+        for rid in reminders_to_archive:
+            if await self.archive_reminder(rid):
+                migrated["reminders"] += 1
+        
+        # Find completed todos (non-recurring or with ended recurrence)
+        todos_to_archive = []
+        for t in self._data.todos:
+            if t.status == "completed":
+                todos_to_archive.append(t.id)
+        
+        # Archive completed todos
+        for tid in todos_to_archive:
+            if await self.archive_todo(tid):
+                migrated["todos"] += 1
+        
+        return migrated
     
     # Note methods
     async def create_note(self, title: str, content: str, **kwargs) -> Note:

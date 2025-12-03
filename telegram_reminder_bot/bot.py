@@ -176,6 +176,7 @@ async def set_bot_commands():
         BotCommand(command="newpassword", description="🔐 Новый пароль"),
         BotCommand(command="passwords", description="🔐 Пароли"),
         BotCommand(command="archive", description="📦 Архив"),
+        BotCommand(command="migrate_completed", description="📦 Перенести выполненные в архив"),
         BotCommand(command="stats", description="📊 Статистика"),
         BotCommand(command="calendar", description="📅 Календарь"),
         BotCommand(command="session", description="⏱️ Управление сессией"),
