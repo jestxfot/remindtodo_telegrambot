@@ -32,9 +32,129 @@ from utils.keyboards import (
     get_priority_keyboard
 )
 from utils.date_parser import parse_datetime
-from utils.formatters import format_todo, format_todos_list
+from utils.formatters import format_todo, format_todos_list, format_datetime
 
 router = Router()
+
+
+# ============ ARCHIVE FORMATTERS ============
+
+def format_archived_reminder(data: dict, archived_at: str, timezone: str) -> str:
+    """Format archived reminder for display"""
+    recurrence_text = {
+        "none": "",
+        "daily": "🔄 Ежедневно",
+        "weekly": "🔄 Еженедельно",
+        "monthly": "🔄 Ежемесячно",
+        "yearly": "🔄 Ежегодно",
+        "custom": "🔄 Пользовательский интервал"
+    }
+    
+    title = data.get('title', 'Без названия')
+    text = f"🔔 <b>Напоминание: {title}</b>\n\n"
+    
+    if data.get("description"):
+        text += f"📝 {data['description']}\n\n"
+    
+    # Время напоминания
+    remind_at = data.get('remind_at', '')
+    if remind_at:
+        text += f"⏰ Время: {format_datetime(remind_at, timezone)}\n"
+    
+    # Тип повторения
+    rec_type = data.get('recurrence_type', 'none')
+    if rec_type != 'none':
+        rec_text = recurrence_text.get(rec_type, "🔄 Повторяющееся")
+        if rec_type == 'custom' and data.get('recurrence_interval'):
+            rec_text = f"🔄 Каждые {data['recurrence_interval']} мин"
+        text += f"{rec_text}\n"
+        
+        # Дата окончания повторения
+        if data.get('recurrence_end_date'):
+            end_str = format_datetime(data['recurrence_end_date'], timezone, include_time=False)
+            text += f"📅 Повтор до: {end_str}\n"
+    
+    # Счетчик выполнений
+    if data.get("recurrence_count", 0) > 0:
+        text += f"✅ Выполнено раз: {data['recurrence_count']}\n"
+    
+    # Постоянное уведомление
+    if data.get('is_persistent'):
+        interval = data.get('persistent_interval', 60)
+        text += f"🔊 Постоянное (каждые {interval} сек)\n"
+    
+    # Количество отложений
+    if data.get('snooze_count', 0) > 0:
+        text += f"💤 Отложено раз: {data['snooze_count']}\n"
+    
+    text += f"\n📅 Создано: {format_datetime(data.get('created_at', ''), timezone, include_time=False)}\n"
+    text += f"📦 Архивировано: {format_datetime(archived_at, timezone, include_time=False)}\n"
+    
+    return text
+
+
+def format_archived_todo(data: dict, archived_at: str, timezone: str) -> str:
+    """Format archived todo for display"""
+    priority_text = {
+        "low": "🟢 Низкий",
+        "medium": "🟡 Средний",
+        "high": "🟠 Высокий",
+        "urgent": "🔴 Срочный"
+    }
+    
+    status_text = {
+        "pending": "⏳ Ожидает",
+        "in_progress": "🔄 В работе",
+        "completed": "✅ Выполнено",
+        "cancelled": "❌ Отменено"
+    }
+    
+    recurrence_text = {
+        "none": "",
+        "daily": "🔁 Ежедневно",
+        "weekly": "🔁 Еженедельно",
+        "monthly": "🔁 Ежемесячно",
+        "yearly": "🔁 Ежегодно",
+    }
+    
+    title = data.get('title', 'Без названия')
+    text = f"📋 <b>Задача: {title}</b>\n\n"
+    
+    if data.get("description"):
+        text += f"📝 {data['description']}\n\n"
+    
+    # Статус и приоритет
+    status = data.get('status', 'pending')
+    priority = data.get('priority', 'medium')
+    text += f"📊 Статус: {status_text.get(status, 'Неизвестно')}\n"
+    text += f"🎯 Приоритет: {priority_text.get(priority, 'Неизвестно')}\n"
+    
+    # Дедлайн
+    if data.get('deadline'):
+        text += f"📅 Дедлайн: {format_datetime(data['deadline'], timezone)}\n"
+    
+    # Тип повторения
+    rec_type = data.get('recurrence_type', 'none')
+    if rec_type != 'none':
+        rec_text = recurrence_text.get(rec_type, "🔁 Повторяющаяся")
+        text += f"{rec_text}\n"
+        
+        if data.get('recurrence_end_date'):
+            end_str = format_datetime(data['recurrence_end_date'], timezone, include_time=False)
+            text += f"📅 Повтор до: {end_str}\n"
+    
+    # Счетчик выполнений
+    if data.get("recurrence_count", 0) > 0:
+        text += f"✅ Выполнено раз: {data['recurrence_count']}\n"
+    
+    # Дата завершения
+    if data.get('completed_at'):
+        text += f"✅ Завершено: {format_datetime(data['completed_at'], timezone)}\n"
+    
+    text += f"\n📅 Создано: {format_datetime(data.get('created_at', ''), timezone, include_time=False)}\n"
+    text += f"📦 Архивировано: {format_datetime(archived_at, timezone, include_time=False)}\n"
+    
+    return text
 
 
 class TodoStates(StatesGroup):
@@ -155,27 +275,29 @@ async def cb_todo_complete(callback: CallbackQuery):
     
     if was_archived:
         await callback.answer("✅ Задача завершена и перемещена в архив!")
-        await callback.message.edit_text(
-            "✅ Повторяющаяся задача завершена!\n\n"
-            f"📋 {todo.title}\n"
-            f"🔄 Выполнено раз: {todo.recurrence_count}\n\n"
-            "Задача перемещена в архив.",
-            parse_mode="HTML"
-        )
+        if todo.is_recurring:
+            # Повторяющаяся задача завершена (достигнута дата окончания)
+            await callback.message.edit_text(
+                f"✅ <b>Задача завершена!</b>\n\n"
+                f"📋 {todo.title}\n"
+                f"🔄 Выполнено раз: {todo.recurrence_count}\n\n"
+                f"📦 Перемещена в архив (достигнута дата окончания)",
+                parse_mode="HTML"
+            )
+        else:
+            # Неповторяющаяся задача выполнена
+            await callback.message.edit_text(
+                f"✅ <b>Задача выполнена!</b>\n\n"
+                f"📋 {todo.title}\n\n"
+                f"📦 Перемещена в архив",
+                parse_mode="HTML"
+            )
     elif todo.is_recurring:
         await callback.answer("✅ Выполнено! Создана следующая итерация.")
         formatted = format_todo(todo, user_storage.user.timezone)
         await callback.message.edit_text(
             f"✅ Выполнено! Следующая итерация:\n\n{formatted}",
             reply_markup=get_todo_keyboard(todo.id, is_recurring=True),
-            parse_mode="HTML"
-        )
-    else:
-        await callback.answer("✅ Задача выполнена!")
-        formatted = format_todo(todo, user_storage.user.timezone)
-        await callback.message.edit_text(
-            formatted,
-            reply_markup=get_todo_keyboard(todo.id, is_recurring=False),
             parse_mode="HTML"
         )
 
@@ -601,13 +723,28 @@ def get_archive_keyboard(archive: list, item_type: str = None, page: int = 0, pe
     
     for item in page_items:
         data = item.data
-        title = data.get("title", "Без названия")[:25]
-        icon = "📋" if item.item_type == "todo" else "🔔"
-        date = item.archived_at[:10]
+        title = data.get("title", "Без названия")[:20]
+        
+        if item.item_type == "reminder":
+            icon = "🔔"
+            # Показываем время напоминания
+            remind_at = data.get("remind_at", "")
+            if remind_at:
+                time_part = remind_at[11:16] if len(remind_at) > 16 else ""
+                date_part = remind_at[:10] if len(remind_at) >= 10 else ""
+                extra_info = f" {date_part} {time_part}" if date_part else ""
+            else:
+                extra_info = ""
+        else:
+            icon = "📋"
+            # Для задач показываем приоритет
+            priority_icons = {"low": "🟢", "medium": "🟡", "high": "🟠", "urgent": "🔴"}
+            priority = data.get("priority", "medium")
+            extra_info = f" {priority_icons.get(priority, '')}"
         
         builder.row(
             InlineKeyboardButton(
-                text=f"{icon} {title} ({date})",
+                text=f"{icon} {title}{extra_info}",
                 callback_data=f"archive_view:{item.archived_at[:26]}"
             )
         )
@@ -740,21 +877,12 @@ async def cb_archive_view(callback: CallbackQuery):
         return
     
     data = item.data
-    icon = "📋" if item.item_type == "todo" else "🔔"
-    type_name = "Задача" if item.item_type == "todo" else "Напоминание"
+    timezone = user_storage.user.timezone
     
-    text = (
-        f"{icon} <b>{type_name}: {data.get('title', 'Без названия')}</b>\n\n"
-    )
-    
-    if data.get("description"):
-        text += f"📝 {data['description']}\n\n"
-    
-    if data.get("recurrence_count", 0) > 0:
-        text += f"🔄 Выполнено раз: {data['recurrence_count']}\n"
-    
-    text += f"📅 Создано: {data.get('created_at', '')[:10]}\n"
-    text += f"📦 Архивировано: {item.archived_at[:10]}\n"
+    if item.item_type == "reminder":
+        text = format_archived_reminder(data, item.archived_at, timezone)
+    else:
+        text = format_archived_todo(data, item.archived_at, timezone)
     
     builder = InlineKeyboardBuilder()
     builder.row(
