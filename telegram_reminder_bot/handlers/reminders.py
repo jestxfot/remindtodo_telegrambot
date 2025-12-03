@@ -124,7 +124,7 @@ async def process_reminder_text(message: Message, state: FSMContext):
             remind_at=remind_at.isoformat(),
             is_persistent=True,
             with_sound=True,
-            recurrence=recurrence_type,
+            recurrence_type=recurrence_type if recurrence_type else "none",
             recurrence_interval=recurrence_interval
         )
         

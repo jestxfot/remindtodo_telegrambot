@@ -239,7 +239,7 @@ async def process_todo_title(message: Message, state: FSMContext):
     todo = await user_storage.create_todo(
         title=clean_title,
         deadline=deadline.isoformat() if deadline else None,
-        recurrence=recurrence_type,
+        recurrence_type=recurrence_type if recurrence_type else "none",
         recurrence_interval=recurrence_interval
     )
     
