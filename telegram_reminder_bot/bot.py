@@ -10,6 +10,7 @@ Security Features:
 """
 import asyncio
 import logging
+import aiofiles
 from datetime import datetime
 from pathlib import Path
 from aiogram import Bot, Dispatcher
@@ -17,7 +18,7 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
 
-from config import BOT_TOKEN, PERSISTENT_REMINDER_INTERVAL, P2P_ENABLED, P2P_PORT, DATA_DIR, SESSION_DURATIONS, DEFAULT_SESSION_DURATION
+from config import BOT_TOKEN, PERSISTENT_REMINDER_INTERVAL, P2P_ENABLED, P2P_PORT, DATA_DIR, SESSION_DURATIONS, DEFAULT_SESSION_DURATION, API_ENABLED, API_PORT
 from storage.json_storage import storage
 from middleware.auth_middleware import AuthMiddleware
 from handlers import (
@@ -27,7 +28,8 @@ from handlers import (
     todos_router,
     notes_router,
     passwords_router,
-    callbacks_router
+    callbacks_router,
+    calendar_router
 )
 from handlers.auth import is_authenticated, get_crypto_for_user
 from utils.keyboards import get_reminder_keyboard
@@ -59,6 +61,18 @@ dp.include_router(todos_router)
 dp.include_router(notes_router)
 dp.include_router(passwords_router)
 dp.include_router(callbacks_router)
+dp.include_router(calendar_router)
+
+
+def make_naive_utc(dt: datetime) -> datetime:
+    """Convert datetime to naive UTC for comparison"""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        # Convert to UTC and remove timezone info
+        from datetime import timezone
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
 
 
 async def check_reminders():
@@ -82,8 +96,11 @@ async def check_reminders():
                     reminders = await user_storage.get_reminders()
                     
                     for reminder in reminders:
-                        if reminder.status == "pending" and reminder.remind_at_dt:
-                            if reminder.remind_at_dt <= now:
+                        remind_at = make_naive_utc(reminder.remind_at_dt)
+                        snoozed_until = make_naive_utc(reminder.snoozed_until_dt)
+                        
+                        if reminder.status == "pending" and remind_at:
+                            if remind_at <= now:
                                 await user_storage.update_reminder(
                                     reminder.id,
                                     status="active",
@@ -93,7 +110,8 @@ async def check_reminders():
                         
                         elif reminder.status == "active" and reminder.is_persistent:
                             if reminder.last_notification_at:
-                                last_notif = datetime.fromisoformat(reminder.last_notification_at)
+                                last_notif = datetime.fromisoformat(reminder.last_notification_at.replace('Z', '+00:00'))
+                                last_notif = make_naive_utc(last_notif) or last_notif
                                 if (now - last_notif).total_seconds() >= reminder.persistent_interval:
                                     await user_storage.update_reminder(
                                         reminder.id,
@@ -101,8 +119,8 @@ async def check_reminders():
                                     )
                                     await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=False)
                         
-                        elif reminder.status == "snoozed" and reminder.snoozed_until_dt:
-                            if reminder.snoozed_until_dt <= now:
+                        elif reminder.status == "snoozed" and snoozed_until:
+                            if snoozed_until <= now:
                                 await user_storage.update_reminder(
                                     reminder.id,
                                     status="active",
@@ -159,10 +177,104 @@ async def set_bot_commands():
         BotCommand(command="passwords", description="🔐 Пароли"),
         BotCommand(command="archive", description="📦 Архив"),
         BotCommand(command="stats", description="📊 Статистика"),
+        BotCommand(command="calendar", description="📅 Календарь"),
         BotCommand(command="session", description="⏱️ Управление сессией"),
         BotCommand(command="changepassword", description="🔑 Сменить пароль"),
     ]
     await bot.set_my_commands(commands)
+
+
+async def check_and_send_backups():
+    """Check and send daily backups to users who enabled them"""
+    import json
+    import io
+    from aiogram.types import BufferedInputFile
+    
+    while True:
+        try:
+            user_ids = await storage.get_all_user_ids()
+            now = datetime.utcnow()
+            current_hour = now.hour
+            
+            for user_id in user_ids:
+                # Only for authenticated users
+                if not is_authenticated(user_id):
+                    continue
+                
+                crypto = get_crypto_for_user(user_id)
+                if not crypto:
+                    continue
+                
+                try:
+                    user_storage = await storage.get_user_storage(user_id, crypto)
+                    user = user_storage.user
+                    
+                    # Check if backup enabled
+                    if not getattr(user, 'backup_enabled', False):
+                        continue
+                    
+                    # Check if it's backup hour
+                    backup_hour = getattr(user, 'backup_hour', 3)
+                    if current_hour != backup_hour:
+                        continue
+                    
+                    # Check if already backed up today
+                    last_backup = getattr(user, 'last_backup_at', None)
+                    if last_backup:
+                        last_backup_dt = datetime.fromisoformat(last_backup)
+                        if last_backup_dt.date() == now.date():
+                            continue
+                    
+                    # Create backup
+                    stats = await user_storage.get_statistics()
+                    backup_data = {
+                        "backup_date": now.isoformat(),
+                        "user_id": user_id,
+                        "timezone": user.timezone,
+                        "statistics": stats,
+                        "note": "This is encrypted backup. Import it using /restore command."
+                    }
+                    
+                    # Get encrypted file path
+                    backup_file = Path(DATA_DIR) / f"user_{user_id}.encrypted.json"
+                    if backup_file.exists():
+                        async with aiofiles.open(backup_file, 'r') as f:
+                            encrypted_content = await f.read()
+                        
+                        # Send backup file
+                        file_bytes = encrypted_content.encode('utf-8')
+                        date_str = now.strftime("%Y-%m-%d")
+                        filename = f"backup_{user_id}_{date_str}.json"
+                        
+                        input_file = BufferedInputFile(file_bytes, filename=filename)
+                        
+                        await bot.send_document(
+                            chat_id=user_id,
+                            document=input_file,
+                            caption=(
+                                f"📦 <b>Ежедневный бэкап</b>\n\n"
+                                f"📅 Дата: {date_str}\n"
+                                f"📊 Задач: {stats['todos']['total']}\n"
+                                f"🔔 Напоминаний: {stats['reminders']['total']}\n"
+                                f"📝 Заметок: {stats['notes']}\n"
+                                f"🔐 Паролей: {stats['passwords']}\n\n"
+                                f"<i>Файл зашифрован. Сохраните его в надёжном месте.</i>"
+                            ),
+                            parse_mode="HTML"
+                        )
+                        
+                        # Update last backup time
+                        await user_storage.update_user(last_backup_at=now.isoformat())
+                        logger.info(f"Backup sent to user {user_id}")
+                
+                except Exception as e:
+                    logger.error(f"Error sending backup to user {user_id}: {e}")
+        
+        except Exception as e:
+            logger.error(f"Error in backup check loop: {e}")
+        
+        # Check every hour
+        await asyncio.sleep(3600)
 
 
 async def on_startup():
@@ -184,12 +296,27 @@ async def on_startup():
     asyncio.create_task(check_reminders())
     logger.info("Reminder checker started")
     
+    # Start backup checker
+    asyncio.create_task(check_and_send_backups())
+    logger.info("Backup checker started")
+    
     # Start P2P server if enabled
     if P2P_ENABLED:
         from p2p.sync_server import P2PSyncServer
         p2p_server = P2PSyncServer(port=P2P_PORT)
         asyncio.create_task(p2p_server.start())
         logger.info(f"P2P sync server started on port {P2P_PORT}")
+    
+    # Start API server for Web App if enabled
+    if API_ENABLED:
+        from aiohttp import web
+        from handlers.calendar import create_api_app
+        api_app = create_api_app()
+        runner = web.AppRunner(api_app)
+        await runner.setup()
+        site = web.TCPSite(runner, '0.0.0.0', API_PORT)
+        await site.start()
+        logger.info(f"API server started on port {API_PORT}")
     
     logger.info("Bot started successfully!")
 

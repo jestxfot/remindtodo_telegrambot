@@ -9,6 +9,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
 from datetime import datetime
+import html
 import sys
 import os
 
@@ -999,10 +1000,11 @@ async def cb_pwd_new(callback: CallbackQuery, state: FSMContext):
 async def cb_pwd_generate(callback: CallbackQuery):
     """Show password generator"""
     password = SecurePasswordGenerator.generate(length=16)
+    safe_password = html.escape(password)  # Экранируем HTML-сущности
     
     await callback.message.edit_text(
         f"🎲 <b>Генератор паролей</b>\n\n"
-        f"<code>{password}</code>\n\n"
+        f"<code>{safe_password}</code>\n\n"
         f"📊 Длина: 16 символов\n"
         f"✅ Буквы, цифры, спецсимволы\n\n"
         f"<i>Нажмите на пароль чтобы скопировать</i>",
@@ -1015,10 +1017,11 @@ async def cb_pwd_generate(callback: CallbackQuery):
 async def cb_pwd_gen_new(callback: CallbackQuery):
     """Generate new password"""
     password = SecurePasswordGenerator.generate(length=16)
+    safe_password = html.escape(password)  # Экранируем HTML-сущности
     
     await callback.message.edit_text(
         f"🎲 <b>Генератор паролей</b>\n\n"
-        f"<code>{password}</code>\n\n"
+        f"<code>{safe_password}</code>\n\n"
         f"📊 Длина: 16 символов\n"
         f"✅ Буквы, цифры, спецсимволы\n\n"
         f"<i>Нажмите на пароль чтобы скопировать</i>",
@@ -1033,10 +1036,11 @@ async def cb_pwd_gen_length(callback: CallbackQuery):
     """Generate password with specific length"""
     length = int(callback.data.split(":")[1])
     password = SecurePasswordGenerator.generate(length=length)
+    safe_password = html.escape(password)  # Экранируем HTML-сущности
     
     await callback.message.edit_text(
         f"🎲 <b>Генератор паролей</b>\n\n"
-        f"<code>{password}</code>\n\n"
+        f"<code>{safe_password}</code>\n\n"
         f"📊 Длина: {length} символов\n"
         f"✅ Буквы, цифры, спецсимволы\n\n"
         f"<i>Нажмите на пароль чтобы скопировать</i>",

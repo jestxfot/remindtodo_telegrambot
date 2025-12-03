@@ -8,6 +8,7 @@ from .todos import router as todos_router
 from .notes import router as notes_router
 from .passwords import router as passwords_router
 from .callbacks import router as callbacks_router
+from .calendar import router as calendar_router
 
 __all__ = [
     "auth_router",
@@ -16,5 +17,6 @@ __all__ = [
     "todos_router",
     "notes_router",
     "passwords_router",
-    "callbacks_router"
+    "callbacks_router",
+    "calendar_router"
 ]

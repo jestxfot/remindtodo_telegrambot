@@ -254,10 +254,12 @@ class UserStorage:
         
         Logic for recurring tasks:
         - Next deadline is calculated from CURRENT deadline (not from now)
+        - Original time (hours:minutes) is preserved for next iterations
         - If next deadline is in the past, keep adding intervals until it's in the future
         - This ensures tasks don't "skip" iterations if completed late
         """
         from dateutil.relativedelta import relativedelta
+        from datetime import timedelta
         
         todo = await self.get_todo(todo_id)
         if not todo:
@@ -283,7 +285,7 @@ class UserStorage:
             interval = todo.recurrence_interval or 1
             base_time = datetime.fromisoformat(todo.deadline) if todo.deadline else now
             
-            # Calculate interval delta
+            # Calculate interval delta based on recurrence type
             if todo.recurrence_type == RecurrenceType.DAILY.value:
                 delta = relativedelta(days=interval)
             elif todo.recurrence_type == RecurrenceType.WEEKLY.value:
@@ -292,6 +294,9 @@ class UserStorage:
                 delta = relativedelta(months=interval)
             elif todo.recurrence_type == RecurrenceType.YEARLY.value:
                 delta = relativedelta(years=interval)
+            elif todo.recurrence_type == RecurrenceType.CUSTOM.value:
+                # Custom interval is stored in MINUTES
+                delta = timedelta(minutes=interval)
             else:
                 delta = relativedelta(days=interval)
             
@@ -329,16 +334,27 @@ class UserStorage:
             await self._auto_save_if_enabled()
             return todo, False
     
+    def _to_naive_utc(self, dt: datetime) -> datetime:
+        """Convert datetime to naive UTC for comparison"""
+        if dt is None:
+            return None
+        if dt.tzinfo is not None:
+            from datetime import timezone
+            return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt
+    
     async def complete_reminder(self, reminder_id: str) -> tuple[Optional[Reminder], bool]:
         """
         Complete a reminder. For recurring reminders, creates next iteration.
         Returns: (reminder, was_archived)
         
         Logic for recurring reminders:
-        - Next time is calculated from CURRENT remind_at (not from now)
+        - Next time is calculated from CURRENT remind_at (not from snoozed_until!)
+        - Original time is preserved for next iterations
         - If next time is in the past, keep adding intervals until it's in the future
         """
         from dateutil.relativedelta import relativedelta
+        from datetime import timedelta
         
         reminder = await self.get_reminder(reminder_id)
         if not reminder:
@@ -351,7 +367,7 @@ class UserStorage:
         if reminder.is_recurring:
             # Check if end date reached
             if reminder.recurrence_end_date:
-                end_dt = datetime.fromisoformat(reminder.recurrence_end_date)
+                end_dt = self._to_naive_utc(datetime.fromisoformat(reminder.recurrence_end_date))
                 if now >= end_dt:
                     # End date reached - archive
                     reminder.status = "completed"
@@ -359,11 +375,12 @@ class UserStorage:
                     await self.archive_reminder(reminder_id)
                     return reminder, True
             
-            # Calculate next remind_at from CURRENT time (not now!)
-            current_remind = datetime.fromisoformat(reminder.remind_at)
+            # Calculate next remind_at from CURRENT remind_at (NOT from snoozed_until!)
+            # This ensures snooze doesn't affect future iterations
+            current_remind = self._to_naive_utc(datetime.fromisoformat(reminder.remind_at))
             interval = reminder.recurrence_interval or 1
             
-            # Calculate interval delta
+            # Calculate interval delta based on recurrence type
             if reminder.recurrence_type == RecurrenceType.DAILY.value:
                 delta = relativedelta(days=interval)
             elif reminder.recurrence_type == RecurrenceType.WEEKLY.value:
@@ -372,6 +389,9 @@ class UserStorage:
                 delta = relativedelta(months=interval)
             elif reminder.recurrence_type == RecurrenceType.YEARLY.value:
                 delta = relativedelta(years=interval)
+            elif reminder.recurrence_type == RecurrenceType.CUSTOM.value:
+                # Custom interval is stored in MINUTES
+                delta = timedelta(minutes=interval)
             else:
                 delta = relativedelta(days=interval)
             
@@ -387,7 +407,7 @@ class UserStorage:
             
             # Check if next remind exceeds end date
             if reminder.recurrence_end_date:
-                end_dt = datetime.fromisoformat(reminder.recurrence_end_date)
+                end_dt = self._to_naive_utc(datetime.fromisoformat(reminder.recurrence_end_date))
                 if next_remind > end_dt:
                     # This was the last iteration - archive
                     reminder.status = "completed"

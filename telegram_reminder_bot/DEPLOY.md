@@ -324,22 +324,12 @@ After=network.target
 
 [Service]
 Type=simple
-User=telegrambot
-Group=telegrambot
-WorkingDirectory=root/telegram_reminder_bot
-EnvironmentFile=root/telegram_reminder_bot/.env
-ExecStart=root/telegram_reminder_bot/venv/bin/python bot.py
+WorkingDirectory=/root/telegram_reminder_bot
+EnvironmentFile=/root/telegram_reminder_bot/.env
+ExecStart=/root/telegram_reminder_bot/venv/bin/python3 /root/telegram_reminder_bot/bot.py
 Restart=always
 RestartSec=10
 
-# Безопасность
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=root/telegram_reminder_bot/data
-
-# Логирование
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=telegram-bot
