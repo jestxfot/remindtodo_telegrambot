@@ -29,10 +29,12 @@ from utils.keyboards import (
     get_cancel_keyboard,
     get_todo_keyboard,
     get_todos_list_keyboard,
-    get_priority_keyboard
+    get_priority_keyboard,
+    get_recurrence_keyboard,
+    get_custom_recurrence_keyboard
 )
 from utils.date_parser import parse_datetime
-from utils.formatters import format_todo, format_todos_list, format_datetime
+from utils.formatters import format_todo, format_todos_list, format_datetime, format_interval
 
 router = Router()
 
@@ -163,6 +165,7 @@ class TodoStates(StatesGroup):
     setting_deadline = State()
     setting_recurrence = State()
     setting_recurrence_end = State()
+    waiting_for_custom_interval = State()
 
 
 async def show_todos_list(message: Message):
@@ -206,6 +209,8 @@ async def cmd_todos(message: Message):
 @router.message(TodoStates.waiting_for_title)
 async def process_todo_title(message: Message, state: FSMContext):
     """Process todo title input"""
+    from utils.date_parser import extract_title_and_datetime
+    
     text = message.text.strip()
     
     if text == "❌ Отмена":
@@ -217,14 +222,33 @@ async def process_todo_title(message: Message, state: FSMContext):
     if not user_storage:
         await message.answer("🔒 Разблокируйте хранилище: /unlock")
         return
-    todo = await user_storage.create_todo(title=text)
+    
+    timezone = user_storage.user.timezone
+    
+    # Extract clean title and datetime from natural language
+    clean_title, deadline, recurrence_tuple = extract_title_and_datetime(text, timezone)
+    
+    # Prepare recurrence settings
+    recurrence_type = None
+    recurrence_interval = None
+    if recurrence_tuple:
+        recurrence_type = recurrence_tuple[0].value
+        recurrence_interval = recurrence_tuple[1]
+    
+    # Create todo with extracted data
+    todo = await user_storage.create_todo(
+        title=clean_title,
+        deadline=deadline.isoformat() if deadline else None,
+        recurrence=recurrence_type,
+        recurrence_interval=recurrence_interval
+    )
     
     await state.clear()
     
-    formatted = format_todo(todo, user_storage.user.timezone)
+    formatted = format_todo(todo, timezone)
     await message.answer(
         f"✅ Задача создана!\n\n{formatted}",
-        reply_markup=get_todo_keyboard(todo.id),
+        reply_markup=get_todo_keyboard(todo.id, is_recurring=todo.is_recurring),
         parse_mode="HTML"
     )
     
@@ -234,9 +258,9 @@ async def process_todo_title(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("todo_view:"))
+@router.callback_query(F.data.startswith("tv:"))
 async def cb_todo_view(callback: CallbackQuery):
-    """View todo details"""
+    """View todo details (tv = todo view)"""
     todo_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -257,9 +281,9 @@ async def cb_todo_view(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("todo_complete:"))
+@router.callback_query(F.data.startswith("tc:"))
 async def cb_todo_complete(callback: CallbackQuery):
-    """Mark todo as completed (handles recurring todos)"""
+    """Mark todo as completed (tc = todo complete)"""
     todo_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -302,9 +326,9 @@ async def cb_todo_complete(callback: CallbackQuery):
         )
 
 
-@router.callback_query(F.data.startswith("todo_progress:"))
+@router.callback_query(F.data.startswith("tp:"))
 async def cb_todo_progress(callback: CallbackQuery):
-    """Set todo status to in progress"""
+    """Set todo status to in progress (tp = todo progress)"""
     todo_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -331,9 +355,9 @@ async def cb_todo_progress(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("todo_delete:"))
+@router.callback_query(F.data.startswith("tdd:"))
 async def cb_todo_delete(callback: CallbackQuery):
-    """Delete todo"""
+    """Delete todo (tdd = todo delete)"""
     todo_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -349,9 +373,9 @@ async def cb_todo_delete(callback: CallbackQuery):
         await callback.answer("Задача не найдена")
 
 
-@router.callback_query(F.data.startswith("todo_archive:"))
+@router.callback_query(F.data.startswith("ta:"))
 async def cb_todo_archive(callback: CallbackQuery):
-    """Archive todo"""
+    """Archive todo (ta = todo archive)"""
     todo_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -376,38 +400,22 @@ async def cb_todo_archive(callback: CallbackQuery):
         await callback.answer("Ошибка архивирования")
 
 
-@router.callback_query(F.data.startswith("todo_recurrence:"))
+@router.callback_query(F.data.startswith("tr:"))
 async def cb_todo_recurrence(callback: CallbackQuery, state: FSMContext):
     """Set todo recurrence"""
     todo_id = callback.data.split(":")[1]
     
-    builder = InlineKeyboardBuilder()
-    builder.row(
-        InlineKeyboardButton(text="📅 Ежедневно", callback_data=f"todo_rec_set:{todo_id}:daily"),
-        InlineKeyboardButton(text="📆 Еженедельно", callback_data=f"todo_rec_set:{todo_id}:weekly")
-    )
-    builder.row(
-        InlineKeyboardButton(text="🗓️ Ежемесячно", callback_data=f"todo_rec_set:{todo_id}:monthly"),
-        InlineKeyboardButton(text="📆 Ежегодно", callback_data=f"todo_rec_set:{todo_id}:yearly")
-    )
-    builder.row(
-        InlineKeyboardButton(text="❌ Отключить повтор", callback_data=f"todo_rec_set:{todo_id}:none")
-    )
-    builder.row(
-        InlineKeyboardButton(text="⬅️ Назад", callback_data=f"todo_view:{todo_id}")
-    )
-    
     await callback.message.edit_text(
-        "🔄 <b>Настройка повторения</b>\n\n"
+        "🔁 <b>Настройка повторения задачи</b>\n\n"
         "Выберите интервал повторения:",
-        reply_markup=builder.as_markup(),
+        reply_markup=get_recurrence_keyboard(todo_id, "todo"),
         parse_mode="HTML"
     )
 
 
-@router.callback_query(F.data.startswith("todo_rec_set:"))
-async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
-    """Set recurrence type"""
+@router.callback_query(F.data.startswith("trs:"))
+async def cb_todo_recurrence_set_new(callback: CallbackQuery, state: FSMContext):
+    """Set recurrence type from new keyboard"""
     parts = callback.data.split(":")
     todo_id = parts[1]
     rec_type = parts[2]
@@ -442,7 +450,6 @@ async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
     
     # Check if todo has deadline - required for recurring tasks
     if not todo.deadline:
-        # Set deadline to tomorrow by default for recurring tasks
         from datetime import datetime, timedelta
         tomorrow = datetime.utcnow() + timedelta(days=1)
         tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
@@ -466,12 +473,272 @@ async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
     }
     
     await callback.message.edit_text(
-        f"🔄 Повторение: <b>{rec_names.get(rec_type, rec_type)}</b>\n\n"
+        f"🔁 Повторение: <b>{rec_names.get(rec_type, rec_type)}</b>\n\n"
         "📅 Укажите дату окончания повторения:\n\n"
         "<b>Примеры:</b>\n"
         "• <code>через месяц</code>\n"
         "• <code>31.12.2025</code>\n"
         "• <code>через год</code>\n\n"
+        "Или напишите <code>нет</code> для бессрочного повторения.",
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("trs2:"))
+async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
+    """Set recurrence type (legacy)"""
+    parts = callback.data.split(":")
+    todo_id = parts[1]
+    rec_type = parts[2]
+    
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
+    todo = await user_storage.get_todo(todo_id)
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
+    if rec_type == "none":
+        await user_storage.update_todo(
+            todo_id,
+            recurrence_type=RecurrenceType.NONE.value,
+            recurrence_interval=None,
+            recurrence_end_date=None
+        )
+        await callback.answer("Повторение отключено")
+        
+        todo = await user_storage.get_todo(todo_id)
+        formatted = format_todo(todo, user_storage.user.timezone)
+        await callback.message.edit_text(
+            formatted,
+            reply_markup=get_todo_keyboard(todo.id, is_recurring=False),
+            parse_mode="HTML"
+        )
+        return
+    
+    # Check if todo has deadline - required for recurring tasks
+    if not todo.deadline:
+        from datetime import datetime, timedelta
+        tomorrow = datetime.utcnow() + timedelta(days=1)
+        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
+        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+    
+    # Set recurrence type
+    await user_storage.update_todo(
+        todo_id,
+        recurrence_type=rec_type,
+        recurrence_interval=1
+    )
+    
+    await state.set_state(TodoStates.setting_recurrence_end)
+    await state.update_data(todo_id=todo_id, rec_type=rec_type)
+    
+    rec_names = {
+        "daily": "ежедневно",
+        "weekly": "еженедельно",
+        "monthly": "ежемесячно",
+        "yearly": "ежегодно"
+    }
+    
+    await callback.message.edit_text(
+        f"🔁 Повторение: <b>{rec_names.get(rec_type, rec_type)}</b>\n\n"
+        "📅 Укажите дату окончания повторения:\n\n"
+        "<b>Примеры:</b>\n"
+        "• <code>через месяц</code>\n"
+        "• <code>31.12.2025</code>\n"
+        "• <code>через год</code>\n\n"
+        "Или напишите <code>нет</code> для бессрочного повторения.",
+        parse_mode="HTML"
+    )
+
+
+# ============ CUSTOM RECURRENCE FOR TODOS ============
+
+@router.callback_query(F.data.startswith("recurrence_custom:") & F.data.contains(":todo"))
+async def cb_todo_custom_recurrence(callback: CallbackQuery):
+    """Show custom recurrence options for todo"""
+    parts = callback.data.split(":")
+    todo_id = parts[1]
+    
+    await callback.message.edit_text(
+        "⚙️ <b>Свой интервал повторения</b>\n\n"
+        "Выберите как часто повторять задачу или введите вручную:",
+        reply_markup=get_custom_recurrence_keyboard(todo_id, "todo"),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("rc:") & F.data.contains(":t:"))
+async def cb_todo_custom_set(callback: CallbackQuery, state: FSMContext):
+    """Set custom recurrence for todo"""
+    # Format: rc:item_id:t:value:unit (t=todo, unit=d/w/m)
+    parts = callback.data.split(":")
+    todo_id = parts[1]
+    value = int(parts[3])
+    unit = parts[4]
+    
+    # Конвертируем в минуты
+    if unit == "d":
+        interval_minutes = value * 1440
+    elif unit == "w":
+        interval_minutes = value * 10080
+    elif unit == "m":
+        interval_minutes = value * 43200
+    elif unit == "h":
+        interval_minutes = value * 60
+    else:
+        interval_minutes = value
+    
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
+    todo = await user_storage.get_todo(todo_id)
+    if not todo:
+        await callback.answer("Задача не найдена")
+        return
+    
+    # Set deadline if not set
+    if not todo.deadline:
+        from datetime import datetime, timedelta
+        tomorrow = datetime.utcnow() + timedelta(days=1)
+        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
+        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+    
+    await user_storage.update_todo(
+        todo_id,
+        recurrence_type="custom",
+        recurrence_interval=interval_minutes
+    )
+    
+    await state.set_state(TodoStates.setting_recurrence_end)
+    await state.update_data(todo_id=todo_id, rec_type="custom", interval=interval_minutes)
+    
+    await callback.answer(f"✅ Повторение: {format_interval(interval_minutes)}")
+    
+    await callback.message.edit_text(
+        f"🔁 Повторение: <b>{format_interval(interval_minutes)}</b>\n\n"
+        "📅 Укажите дату окончания повторения:\n\n"
+        "<b>Примеры:</b>\n"
+        "• <code>через месяц</code>\n"
+        "• <code>31.12.2025</code>\n\n"
+        "Или напишите <code>нет</code> для бессрочного повторения.",
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("ri:") & F.data.endswith(":t"))
+async def cb_todo_recurrence_input(callback: CallbackQuery, state: FSMContext):
+    """Start custom interval input for todo (ri = recurrence input)"""
+    parts = callback.data.split(":")
+    todo_id = parts[1]
+    
+    await state.update_data(recurrence_item_id=todo_id, recurrence_item_type="todo")
+    await state.set_state(TodoStates.waiting_for_custom_interval)
+    
+    await callback.message.edit_text(
+        "✏️ <b>Введите интервал повторения</b>\n\n"
+        "Примеры:\n"
+        "• <code>2 дня</code>\n"
+        "• <code>3 недели</code>\n"
+        "• <code>2 месяца</code>\n"
+        "• <code>4 часа</code>\n\n"
+        "Или отправьте /cancel для отмены",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("rb:") & F.data.endswith(":t"))
+async def cb_todo_recurrence_back(callback: CallbackQuery):
+    """Go back to todo recurrence menu (rb = recurrence back)"""
+    parts = callback.data.split(":")
+    todo_id = parts[1]
+    
+    await callback.message.edit_text(
+        "🔁 <b>Настройка повторения задачи</b>\n\n"
+        "Выберите интервал повторения:",
+        reply_markup=get_recurrence_keyboard(todo_id, "todo"),
+        parse_mode="HTML"
+    )
+
+
+@router.message(TodoStates.waiting_for_custom_interval)
+async def process_todo_custom_interval(message: Message, state: FSMContext):
+    """Process custom interval input for todo"""
+    import re
+    
+    if message.text == "/cancel":
+        await state.clear()
+        await message.answer("Отменено", reply_markup=get_main_keyboard())
+        return
+    
+    text = message.text.lower().strip()
+    
+    # Парсим интервал
+    patterns = [
+        (r'(\d+)\s*(?:мин|минут)', lambda m: int(m.group(1))),
+        (r'(\d+)\s*(?:час|часа|часов)', lambda m: int(m.group(1)) * 60),
+        (r'(\d+)\s*(?:день|дня|дней|дн)', lambda m: int(m.group(1)) * 1440),
+        (r'(\d+)\s*(?:недел|нед)', lambda m: int(m.group(1)) * 10080),
+        (r'(\d+)\s*(?:месяц|месяца|месяцев|мес)', lambda m: int(m.group(1)) * 43200),
+    ]
+    
+    interval_minutes = None
+    for pattern, calc in patterns:
+        match = re.search(pattern, text)
+        if match:
+            interval_minutes = calc(match)
+            break
+    
+    if not interval_minutes:
+        await message.answer(
+            "⚠️ Не удалось распознать интервал.\n\n"
+            "Примеры: <code>2 дня</code>, <code>3 недели</code>, <code>4 часа</code>",
+            parse_mode="HTML"
+        )
+        return
+    
+    data = await state.get_data()
+    todo_id = data.get("recurrence_item_id")
+    
+    user_storage = await get_user_storage(message.from_user.id)
+    if not user_storage:
+        await message.answer("🔒 Разблокируйте хранилище: /unlock")
+        return
+    
+    todo = await user_storage.get_todo(todo_id)
+    if not todo:
+        await state.clear()
+        await message.answer("Задача не найдена", reply_markup=get_main_keyboard())
+        return
+    
+    # Set deadline if not set
+    if not todo.deadline:
+        from datetime import datetime, timedelta
+        tomorrow = datetime.utcnow() + timedelta(days=1)
+        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
+        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+    
+    await user_storage.update_todo(
+        todo_id,
+        recurrence_type="custom",
+        recurrence_interval=interval_minutes
+    )
+    
+    await state.set_state(TodoStates.setting_recurrence_end)
+    await state.update_data(todo_id=todo_id, rec_type="custom", interval=interval_minutes)
+    
+    await message.answer(
+        f"🔁 Повторение: <b>{format_interval(interval_minutes)}</b>\n\n"
+        "📅 Укажите дату окончания повторения:\n\n"
+        "<b>Примеры:</b>\n"
+        "• <code>через месяц</code>\n"
+        "• <code>31.12.2025</code>\n\n"
         "Или напишите <code>нет</code> для бессрочного повторения.",
         parse_mode="HTML"
     )
@@ -543,7 +810,7 @@ async def process_recurrence_end(message: Message, state: FSMContext):
     )
 
 
-@router.callback_query(F.data.startswith("todo_priority:"))
+@router.callback_query(F.data.startswith("tpr:"))
 async def cb_todo_priority(callback: CallbackQuery):
     """Show priority selection"""
     todo_id = callback.data.split(":")[1]
@@ -555,7 +822,7 @@ async def cb_todo_priority(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("priority_set:"))
+@router.callback_query(F.data.startswith("ps:"))
 async def cb_priority_set(callback: CallbackQuery):
     """Set todo priority"""
     parts = callback.data.split(":")
@@ -590,7 +857,7 @@ async def cb_priority_set(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("todo_deadline:"))
+@router.callback_query(F.data.startswith("tdl:"))
 async def cb_todo_deadline(callback: CallbackQuery, state: FSMContext):
     """Start deadline setting"""
     todo_id = callback.data.split(":")[1]
@@ -664,7 +931,7 @@ async def process_deadline(message: Message, state: FSMContext):
         await message.answer("Задача не найдена", reply_markup=get_main_keyboard())
 
 
-@router.callback_query(F.data.startswith("todo_back:"))
+@router.callback_query(F.data.startswith("tb:"))
 async def cb_todo_back(callback: CallbackQuery):
     """Go back to todo view"""
     todo_id = callback.data.split(":")[1]
@@ -687,14 +954,14 @@ async def cb_todo_back(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "todo_new")
+@router.callback_query(F.data == "tn")
 async def cb_todo_new(callback: CallbackQuery, state: FSMContext):
     """Start creating new todo from callback"""
     await callback.message.delete()
     await start_create_todo(callback.message, state)
 
 
-@router.callback_query(F.data.startswith("todos_page:"))
+@router.callback_query(F.data.startswith("tpg:"))
 async def cb_todos_page(callback: CallbackQuery):
     """Handle todos pagination"""
     page = int(callback.data.split(":")[1])
@@ -1035,7 +1302,7 @@ async def cb_archive_clear_confirm(callback: CallbackQuery):
     await callback.message.edit_text("📦 Архив очищен")
 
 
-@router.callback_query(F.data == "todos_archive")
+@router.callback_query(F.data == "tar")
 async def cb_todos_archive(callback: CallbackQuery):
     """Show archive from todos list"""
     user_storage = await get_user_storage(callback.from_user.id)

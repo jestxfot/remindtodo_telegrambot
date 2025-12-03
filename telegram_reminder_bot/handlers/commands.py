@@ -42,6 +42,8 @@ async def cmd_start(message: Message, state: FSMContext):
 • Пароль нигде не хранится
 • Только вы можете расшифровать данные
 
+Бот может напоминать вам каждую минуту и сыпать уведомлениями, чтобы вы точно не забыли о важных событиях.
+
 <b>Для начала работы создайте мастер-пароль:</b>
 
 /unlock — создать пароль и начать"""
@@ -216,6 +218,13 @@ async def btn_passwords(message: Message):
 async def btn_stats(message: Message):
     """Handle Statistics button"""
     await cmd_stats(message)
+
+
+@router.message(F.text == "📅 Календарь")
+async def btn_calendar(message: Message):
+    """Handle Calendar button"""
+    from handlers.calendar import cmd_calendar
+    await cmd_calendar(message)
 
 
 @router.message(F.text == "⚙️ Настройки")

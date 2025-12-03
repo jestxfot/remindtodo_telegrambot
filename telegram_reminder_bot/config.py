@@ -46,3 +46,8 @@ SESSION_DURATIONS = {
     "1month": 43200,       # 1 месяц
 }
 DEFAULT_SESSION_DURATION = "30min"
+
+# Web App settings
+WEBAPP_URL = os.getenv("WEBAPP_URL", "")  # URL for Telegram Web App calendar
+API_PORT = int(os.getenv("API_PORT", "8080"))  # Port for API server
+API_ENABLED = os.getenv("API_ENABLED", "false").lower() == "true"

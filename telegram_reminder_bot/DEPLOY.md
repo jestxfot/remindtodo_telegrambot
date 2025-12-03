@@ -246,9 +246,204 @@ data/
 
 ---
 
+## 6️⃣ VPS с systemd (Полный контроль)
+
+**Для:** Собственный VPS/Dedicated сервер (DigitalOcean, Hetzner, Timeweb, и др.)
+
+### Требования:
+- Ubuntu 20.04+ / Debian 11+ / CentOS 8+
+- Python 3.10+
+- SSH доступ с правами sudo
+
+### Шаг 1: Подготовка сервера
+
+```bash
+# Обновляем систему
+sudo apt update && sudo apt upgrade -y
+
+# Устанавливаем Python и pip
+sudo apt install python3 python3-pip python3-venv git -y
+
+# Создаём пользователя для бота (безопасность)
+sudo useradd -r -s /bin/false telegrambot
+```
+
+### Шаг 2: Установка бота
+
+```bash
+# Создаём директорию
+sudo mkdir -p root/telegram_reminder_bot
+cd root/telegram_reminder_bot
+
+# Клонируем репозиторий (или копируем файлы)
+sudo git clone https://github.com/YOUR_USERNAME/telegram-reminder-bot.git .
+# ИЛИ копируем файлы через scp:
+# scp -r telegram_reminder_bot/* user@server:root/telegram_reminder_bot/
+
+# Создаём виртуальное окружение
+sudo python3 -m venv venv
+
+# Устанавливаем зависимости
+sudo ./venv/bin/pip install -r requirements.txt
+```
+
+### Шаг 3: Настройка окружения
+
+```bash
+# Создаём файл конфигурации
+sudo nano root/telegram_reminder_bot/.env
+```
+
+Содержимое `.env`:
+```env
+BOT_TOKEN=ваш_токен_от_BotFather
+DATA_DIR=root/telegram_reminder_bot/data
+TIMEZONE=Europe/Moscow
+```
+
+```bash
+# Создаём директорию для данных
+sudo mkdir -p root/telegram_reminder_bot/data
+
+# Устанавливаем права доступа
+sudo chown -R telegrambot:telegrambot root/telegram_reminder_bot
+sudo chmod 600 root/telegram_reminder_bot/.env
+```
+
+### Шаг 4: Создание systemd службы
+
+```bash
+sudo nano /etc/systemd/system/telegram-reminder-bot.service
+```
+
+Содержимое файла службы:
+```ini
+[Unit]
+Description=Telegram Reminder Bot
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/telegram_reminder_bot
+EnvironmentFile=/root/telegram_reminder_bot/.env
+ExecStart=/root/telegram_reminder_bot/venv/bin/python3 /root/telegram_reminder_bot/bot.py
+Restart=always
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=telegram-bot
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Шаг 5: Запуск службы
+
+```bash
+# Перезагружаем конфигурацию systemd
+sudo systemctl daemon-reload
+
+# Включаем автозапуск при загрузке системы
+sudo systemctl enable telegram-reminder-bot
+
+# Запускаем бота
+sudo systemctl start telegram-reminder-bot
+
+# Проверяем статус
+sudo systemctl status telegram-reminder-bot
+```
+
+### Полезные команды
+
+```bash
+# Посмотреть статус
+sudo systemctl status telegram-reminder-bot
+
+# Перезапустить бота
+sudo systemctl restart telegram-reminder-bot
+
+# Остановить бота
+sudo systemctl stop telegram-reminder-bot
+
+# Просмотр логов (последние 100 строк)
+sudo journalctl -u telegram-reminder-bot -n 100
+
+# Логи в реальном времени
+sudo journalctl -u telegram-reminder-bot -f
+
+# Логи за сегодня
+sudo journalctl -u telegram-reminder-bot --since today
+```
+
+### Обновление бота
+
+```bash
+cd root/telegram_reminder_bot
+
+# Останавливаем бота
+sudo systemctl stop telegram-reminder-bot
+
+# Получаем обновления
+sudo git pull origin main
+
+# Обновляем зависимости (если изменились)
+sudo ./venv/bin/pip install -r requirements.txt
+
+# Возвращаем права
+sudo chown -R telegrambot:telegrambot root/telegram_reminder_bot
+
+# Запускаем бота
+sudo systemctl start telegram-reminder-bot
+```
+
+### Автоматический перезапуск при падении
+
+Служба уже настроена на автоматический перезапуск (`Restart=always`). Для дополнительной защиты можно настроить watchdog:
+
+```bash
+# Редактируем службу
+sudo nano /etc/systemd/system/telegram-reminder-bot.service
+```
+
+Добавляем в секцию `[Service]`:
+```ini
+WatchdogSec=60
+```
+
+### Резервное копирование данных
+
+```bash
+# Создаём скрипт резервного копирования
+sudo nano root/telegram_reminder_bot/backup.sh
+```
+
+```bash
+#!/bin/bash
+BACKUP_DIR="/backups/telegram-bot"
+DATE=$(date +%Y%m%d_%H%M%S)
+mkdir -p $BACKUP_DIR
+tar -czf $BACKUP_DIR/data_$DATE.tar.gz -C root/telegram_reminder_bot data/
+# Удаляем бэкапы старше 7 дней
+find $BACKUP_DIR -name "data_*.tar.gz" -mtime +7 -delete
+```
+
+```bash
+# Делаем скрипт исполняемым
+sudo chmod +x root/telegram_reminder_bot/backup.sh
+
+# Добавляем в cron (каждый день в 3:00)
+sudo crontab -e
+# Добавить строку:
+# 0 3 * * * root/telegram_reminder_bot/backup.sh
+```
+
+---
+
 ## 💡 Советы
 
 1. **Сохраняйте данные в облаке** — используйте volume/persistent storage
 2. **Логируйте ошибки** — `fly logs` или dashboard платформы
 3. **Используйте webhook** вместо polling для экономии ресурсов
 4. **Мониторьте бота** — UptimeRobot или аналоги
+5. **На VPS** — используйте fail2ban и настройте firewall для безопасности

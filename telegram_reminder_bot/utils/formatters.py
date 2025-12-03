@@ -35,6 +35,47 @@ def format_datetime(dt_str: str, timezone: str = DEFAULT_TIMEZONE, include_time:
         return dt_str[:16].replace('T', ' ')
 
 
+def format_interval(minutes: int) -> str:
+    """Format interval in minutes to human-readable string"""
+    if not minutes:
+        return "Повтор"
+    
+    if minutes < 60:
+        return f"каждые {minutes} мин"
+    elif minutes < 1440:  # меньше суток
+        hours = minutes // 60
+        if hours == 1:
+            return "каждый час"
+        elif hours in [2, 3, 4]:
+            return f"каждые {hours} часа"
+        else:
+            return f"каждые {hours} часов"
+    elif minutes < 10080:  # меньше недели
+        days = minutes // 1440
+        if days == 1:
+            return "ежедневно"
+        elif days in [2, 3, 4]:
+            return f"каждые {days} дня"
+        else:
+            return f"каждые {days} дней"
+    elif minutes < 43200:  # меньше месяца (30 дней)
+        weeks = minutes // 10080
+        if weeks == 1:
+            return "еженедельно"
+        elif weeks in [2, 3, 4]:
+            return f"каждые {weeks} недели"
+        else:
+            return f"каждые {weeks} недель"
+    else:
+        months = minutes // 43200
+        if months == 1:
+            return "ежемесячно"
+        elif months in [2, 3, 4]:
+            return f"каждые {months} месяца"
+        else:
+            return f"каждые {months} месяцев"
+
+
 def format_reminder(reminder: "Reminder", timezone: str = DEFAULT_TIMEZONE) -> str:
     """Format reminder for display"""
     status_emoji = {
@@ -45,14 +86,19 @@ def format_reminder(reminder: "Reminder", timezone: str = DEFAULT_TIMEZONE) -> s
         "cancelled": "❌"
     }
     
+    # Формируем текст повторения
     recurrence_text = {
         "none": "",
         "daily": "🔄 Ежедневно",
         "weekly": "🔄 Еженедельно",
         "monthly": "🔄 Ежемесячно",
         "yearly": "🔄 Ежегодно",
-        "custom": f"🔄 Каждые {reminder.recurrence_interval} мин" if reminder.recurrence_interval else "🔄 Повтор"
     }
+    
+    if reminder.recurrence_type == "custom" and reminder.recurrence_interval:
+        recurrence_text["custom"] = f"🔄 {format_interval(reminder.recurrence_interval).capitalize()}"
+    else:
+        recurrence_text["custom"] = "🔄 Повтор"
     
     lines = [
         f"{status_emoji.get(reminder.status, '❓')} <b>{reminder.title}</b>",
@@ -101,6 +147,14 @@ def format_todo(todo: "Todo", timezone: str = DEFAULT_TIMEZONE) -> str:
         "monthly": "🔁 Ежемесячно",
         "yearly": "🔁 Ежегодно",
     }
+    
+    # Добавляем кастомный интервал для задач
+    if hasattr(todo, 'recurrence_type') and todo.recurrence_type == "custom":
+        interval = getattr(todo, 'recurrence_interval', None)
+        if interval:
+            recurrence_text["custom"] = f"🔁 {format_interval(interval).capitalize()}"
+        else:
+            recurrence_text["custom"] = "🔁 Повтор"
     
     lines = [
         f"{todo.status_emoji} <b>{todo.title}</b>",

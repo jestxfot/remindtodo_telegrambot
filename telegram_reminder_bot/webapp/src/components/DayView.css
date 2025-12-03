@@ -1,0 +1,177 @@
+.day-view {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.day-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 12px;
+}
+
+.day-number {
+  width: 48px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 700;
+  background: var(--tg-theme-bg-color);
+  border-radius: 12px;
+}
+
+.day-number.today {
+  background: var(--tg-theme-button-color);
+  color: var(--tg-theme-button-text-color);
+}
+
+.day-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.day-name {
+  font-size: 16px;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.day-date {
+  font-size: 13px;
+  color: var(--tg-theme-hint-color);
+}
+
+/* All-day section */
+.all-day-section {
+  padding: 8px 0;
+}
+
+.section-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tg-theme-hint-color);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.all-day-events {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Timeline */
+.timeline {
+  display: flex;
+  flex-direction: column;
+}
+
+.time-slot {
+  display: flex;
+  min-height: 44px;
+  border-bottom: 1px solid var(--calendar-border);
+}
+
+.time-label {
+  width: 50px;
+  font-size: 12px;
+  color: var(--tg-theme-hint-color);
+  padding: 4px 8px 4px 0;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.time-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+/* Event Card */
+.event-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--tg-theme-secondary-bg-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  border-left: 3px solid transparent;
+}
+
+.event-card:hover {
+  transform: translateX(2px);
+}
+
+.event-card.reminder {
+  border-left-color: var(--calendar-event-reminder);
+}
+
+.event-card.todo {
+  border-left-color: var(--calendar-event-todo);
+}
+
+.event-card.completed {
+  opacity: 0.5;
+}
+
+.event-card.completed .event-title {
+  text-decoration: line-through;
+}
+
+.event-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--tg-theme-hint-color);
+  min-width: 40px;
+}
+
+.event-icon {
+  font-size: 14px;
+}
+
+.event-title {
+  flex: 1;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-recurring {
+  font-size: 12px;
+}
+
+.event-priority {
+  font-size: 10px;
+}
+
+/* No events */
+.no-events {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.no-events-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.no-events p {
+  color: var(--tg-theme-hint-color);
+  font-size: 14px;
+}
+

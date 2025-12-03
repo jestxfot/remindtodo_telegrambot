@@ -26,9 +26,9 @@ from utils.formatters import format_reminder
 router = Router()
 
 
-@router.callback_query(F.data.startswith("reminder_complete:"))
+@router.callback_query(F.data.startswith("rmc:"))
 async def cb_reminder_complete(callback: CallbackQuery):
-    """Mark reminder as completed (handles recurring reminders)"""
+    """Mark reminder as completed (rmc = reminder complete)"""
     reminder_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -72,9 +72,9 @@ async def cb_reminder_complete(callback: CallbackQuery):
         )
 
 
-@router.callback_query(F.data.startswith("reminder_archive:"))
+@router.callback_query(F.data.startswith("rma:"))
 async def cb_reminder_archive(callback: CallbackQuery):
-    """Archive reminder"""
+    """Archive reminder (rma = reminder archive)"""
     reminder_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -99,9 +99,9 @@ async def cb_reminder_archive(callback: CallbackQuery):
         await callback.answer("Ошибка архивирования")
 
 
-@router.callback_query(F.data.startswith("reminder_snooze_menu:"))
+@router.callback_query(F.data.startswith("rsm:"))
 async def cb_reminder_snooze_menu(callback: CallbackQuery):
-    """Show snooze options"""
+    """Show snooze options (rsm = reminder snooze menu)"""
     reminder_id = callback.data.split(":")[1]
     
     await callback.message.edit_text(
@@ -112,9 +112,9 @@ async def cb_reminder_snooze_menu(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("reminder_snooze:"))
+@router.callback_query(F.data.startswith("rs:"))
 async def cb_reminder_snooze(callback: CallbackQuery):
-    """Snooze reminder for specified time"""
+    """Snooze reminder (rs = reminder snooze)"""
     parts = callback.data.split(":")
     reminder_id = parts[1]
     snooze_value = parts[2]
@@ -161,9 +161,9 @@ async def cb_reminder_snooze(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("reminder_snooze_back:"))
+@router.callback_query(F.data.startswith("rsb:"))
 async def cb_reminder_snooze_back(callback: CallbackQuery):
-    """Go back from snooze menu"""
+    """Go back from snooze menu (rsb = reminder snooze back)"""
     reminder_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -186,9 +186,9 @@ async def cb_reminder_snooze_back(callback: CallbackQuery):
     )
 
 
-@router.callback_query(F.data.startswith("reminder_mute:"))
+@router.callback_query(F.data.startswith("rmm:"))
 async def cb_reminder_mute(callback: CallbackQuery):
-    """Mute reminder"""
+    """Mute reminder (rmm = reminder mute)"""
     reminder_id = callback.data.split(":")[1]
     
     user_storage = await get_user_storage(callback.from_user.id)
@@ -338,3 +338,172 @@ async def cb_settings_export(callback: CallbackQuery):
         f"🔑 Ключ привязан к вашему Telegram ID",
         parse_mode="HTML"
     )
+
+
+@router.callback_query(F.data == "settings_backup")
+async def cb_settings_backup(callback: CallbackQuery):
+    """Show backup settings"""
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
+    user = user_storage.user
+    backup_enabled = getattr(user, 'backup_enabled', False)
+    backup_hour = getattr(user, 'backup_hour', 3)
+    last_backup = getattr(user, 'last_backup_at', None)
+    
+    status = "✅ Включено" if backup_enabled else "❌ Выключено"
+    last_backup_str = last_backup[:10] if last_backup else "никогда"
+    
+    builder = InlineKeyboardBuilder()
+    
+    if backup_enabled:
+        builder.row(
+            InlineKeyboardButton(text="❌ Выключить бэкапы", callback_data="backup_toggle:off")
+        )
+    else:
+        builder.row(
+            InlineKeyboardButton(text="✅ Включить бэкапы", callback_data="backup_toggle:on")
+        )
+    
+    builder.row(
+        InlineKeyboardButton(text="🕐 Время отправки", callback_data="backup_time")
+    )
+    builder.row(
+        InlineKeyboardButton(text="📤 Отправить сейчас", callback_data="backup_now")
+    )
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_back")
+    )
+    
+    await callback.message.edit_text(
+        f"💾 <b>Ежедневные бэкапы</b>\n\n"
+        f"Статус: {status}\n"
+        f"🕐 Время отправки: {backup_hour:02d}:00 UTC\n"
+        f"📅 Последний бэкап: {last_backup_str}\n\n"
+        f"Бэкап — зашифрованный файл с вашими данными,\n"
+        f"который бот отправляет вам раз в день.",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("backup_toggle:"))
+async def cb_backup_toggle(callback: CallbackQuery):
+    """Toggle backup on/off"""
+    action = callback.data.split(":")[1]
+    
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
+    enabled = action == "on"
+    await user_storage.update_user(backup_enabled=enabled)
+    
+    if enabled:
+        await callback.answer("✅ Ежедневные бэкапы включены!")
+    else:
+        await callback.answer("❌ Ежедневные бэкапы выключены")
+    
+    # Refresh settings page
+    await cb_settings_backup(callback)
+
+
+@router.callback_query(F.data == "backup_time")
+async def cb_backup_time(callback: CallbackQuery):
+    """Show backup time selection"""
+    builder = InlineKeyboardBuilder()
+    
+    # Hours grouped
+    for row_start in range(0, 24, 4):
+        row_buttons = []
+        for h in range(row_start, min(row_start + 4, 24)):
+            row_buttons.append(
+                InlineKeyboardButton(text=f"{h:02d}:00", callback_data=f"backup_hour:{h}")
+            )
+        builder.row(*row_buttons)
+    
+    builder.row(
+        InlineKeyboardButton(text="⬅️ Назад", callback_data="settings_backup")
+    )
+    
+    await callback.message.edit_text(
+        "🕐 <b>Выберите время отправки бэкапа</b>\n\n"
+        "Время указано в UTC.\n"
+        "Для Москвы (UTC+3): 03:00 UTC = 06:00 МСК",
+        reply_markup=builder.as_markup(),
+        parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data.startswith("backup_hour:"))
+async def cb_backup_hour_set(callback: CallbackQuery):
+    """Set backup hour"""
+    hour = int(callback.data.split(":")[1])
+    
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
+    await user_storage.update_user(backup_hour=hour)
+    await callback.answer(f"✅ Время бэкапа: {hour:02d}:00 UTC")
+    
+    # Return to backup settings
+    await cb_settings_backup(callback)
+
+
+@router.callback_query(F.data == "backup_now")
+async def cb_backup_now(callback: CallbackQuery):
+    """Send backup right now"""
+    import aiofiles
+    from pathlib import Path
+    from aiogram.types import BufferedInputFile
+    from config import DATA_DIR
+    
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+    
+    await callback.answer("📤 Создаю бэкап...")
+    
+    try:
+        stats = await user_storage.get_statistics()
+        user_id = callback.from_user.id
+        
+        backup_file = Path(DATA_DIR) / f"user_{user_id}.encrypted.json"
+        if not backup_file.exists():
+            await callback.message.answer("❌ Файл данных не найден")
+            return
+        
+        async with aiofiles.open(backup_file, 'r') as f:
+            encrypted_content = await f.read()
+        
+        file_bytes = encrypted_content.encode('utf-8')
+        date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        filename = f"backup_{user_id}_{date_str}.json"
+        
+        input_file = BufferedInputFile(file_bytes, filename=filename)
+        
+        await callback.message.answer_document(
+            document=input_file,
+            caption=(
+                f"📦 <b>Ваш бэкап</b>\n\n"
+                f"📅 Дата: {date_str}\n"
+                f"📊 Задач: {stats['todos']['total']}\n"
+                f"🔔 Напоминаний: {stats['reminders']['total']}\n"
+                f"📝 Заметок: {stats['notes']}\n"
+                f"🔐 Паролей: {stats['passwords']}\n\n"
+                f"<i>Файл зашифрован AES-256-GCM.\n"
+                f"Сохраните его в надёжном месте.</i>"
+            ),
+            parse_mode="HTML"
+        )
+        
+        await user_storage.update_user(last_backup_at=datetime.utcnow().isoformat())
+        
+    except Exception as e:
+        await callback.message.answer(f"❌ Ошибка создания бэкапа: {e}")

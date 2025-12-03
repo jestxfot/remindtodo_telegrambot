@@ -12,7 +12,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DEFAULT_TIMEZONE
-from models.reminder import RecurrenceType
+from storage.models import RecurrenceType
 
 
 # Russian month names
@@ -223,6 +223,96 @@ def parse_recurrence(text: str) -> Tuple[RecurrenceType, Optional[int]]:
             return RecurrenceType.CUSTOM, interval_func(match)
     
     return RecurrenceType.NONE, None
+
+
+def extract_title_and_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> Tuple[str, Optional[datetime], Optional[Tuple[RecurrenceType, Optional[int]]]]:
+    """
+    Extract clean title, datetime, and recurrence from natural language text.
+    
+    Example: "Ногти сегодня в 23:00" -> ("Ногти", datetime, None)
+    Example: "Купить молоко завтра" -> ("Купить молоко", datetime, None)
+    Example: "Пить воду каждые 2 часа" -> ("Пить воду", None, (CUSTOM, 120))
+    
+    Returns: (title, datetime, recurrence_tuple)
+    """
+    original_text = text.strip()
+    text_lower = text.lower().strip()
+    
+    # Patterns to remove from title (will be used for datetime parsing)
+    datetime_patterns = [
+        # Time patterns
+        r'\s+в\s+\d{1,2}[:\.\s]\d{2}',  # "в 10:00", "в 10.00", "в 10 00"
+        r'\s+\d{1,2}[:\.\s]\d{2}',  # "10:00" at end
+        # Relative patterns
+        r'\s+через\s+\d+\s*(мин|час|дн|день|дней|недел|месяц)\w*',
+        r'\s+через\s+полчаса',
+        r'\s+через\s+час',
+        # Date patterns  
+        r'\s+\d{1,2}[./]\d{1,2}[./]\d{2,4}(\s+\d{1,2}[:\.\s]\d{2})?',  # 15.01.2025 14:00
+        r'\s+\d{1,2}\s+(января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)\w*(\s+в\s+\d{1,2}[:\.\s]\d{2})?',
+        # Day names
+        r'\s+(в\s+)?(понедельник|вторник|сред[у|а]|четверг|пятниц[у|а]|суббот[у|а]|воскресенье)',
+        # Special keywords  
+        r'\s+сегодня',
+        r'\s+завтра',
+        r'\s+послезавтра',
+        r'\s+утром',
+        r'\s+днём',
+        r'\s+днем',
+        r'\s+вечером',
+        r'\s+ночью',
+    ]
+    
+    # Recurrence patterns to remove
+    recurrence_patterns = [
+        r'\s+ежедневно',
+        r'\s+еженедельно',
+        r'\s+ежемесячно',
+        r'\s+ежегодно',
+        r'\s+каждый\s+день',
+        r'\s+каждую\s+неделю',
+        r'\s+каждый\s+месяц',
+        r'\s+каждый\s+год',
+        r'\s+каждые?\s+\d+\s*(мин|час|дн|день|дней|недел)\w*',
+        r'\s+раз\s+в\s+\d+\s*(мин|час|дн|день|дней|недел)\w*',
+        r'\s+раз\s+в\s+(неделю|месяц|год)',
+    ]
+    
+    # Parse datetime first
+    parsed_dt = parse_datetime(text_lower, timezone)
+    
+    # Parse recurrence
+    recurrence = parse_recurrence(text_lower)
+    recurrence_tuple = recurrence if recurrence[0] != RecurrenceType.NONE else None
+    
+    # Extract clean title by removing datetime and recurrence patterns
+    clean_title = original_text
+    
+    # Remove recurrence patterns first (case insensitive)
+    for pattern in recurrence_patterns:
+        clean_title = re.sub(pattern, '', clean_title, flags=re.IGNORECASE)
+    
+    # Remove datetime patterns (case insensitive)
+    for pattern in datetime_patterns:
+        clean_title = re.sub(pattern, '', clean_title, flags=re.IGNORECASE)
+    
+    # Clean up extra spaces
+    clean_title = re.sub(r'\s+', ' ', clean_title).strip()
+    
+    # If title is empty or too short, use original (but still clean common words)
+    if len(clean_title) < 2:
+        clean_title = original_text
+        # Just remove very obvious time markers
+        clean_title = re.sub(r'\s+в\s+\d{1,2}:\d{2}', '', clean_title)
+        clean_title = re.sub(r'\s+сегодня', '', clean_title, flags=re.IGNORECASE)
+        clean_title = re.sub(r'\s+завтра', '', clean_title, flags=re.IGNORECASE)
+        clean_title = clean_title.strip()
+    
+    # Capitalize first letter
+    if clean_title:
+        clean_title = clean_title[0].upper() + clean_title[1:] if len(clean_title) > 1 else clean_title.upper()
+    
+    return clean_title, parsed_dt, recurrence_tuple
 
 
 def format_relative_time(dt: datetime, timezone: str = DEFAULT_TIMEZONE) -> str:

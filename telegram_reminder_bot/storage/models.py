@@ -64,6 +64,10 @@ class User:
     master_password_hash: Optional[str] = None  # For password vault
     encryption_salt: Optional[str] = None
     is_active: bool = True
+    # Backup settings
+    backup_enabled: bool = False  # Daily backup to Telegram
+    backup_hour: int = 3  # Hour to send backup (0-23, default 3:00)
+    last_backup_at: Optional[str] = None  # Last backup timestamp
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     
@@ -72,6 +76,13 @@ class User:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'User':
+        # Handle legacy data without backup fields
+        if 'backup_enabled' not in data:
+            data['backup_enabled'] = False
+        if 'backup_hour' not in data:
+            data['backup_hour'] = 3
+        if 'last_backup_at' not in data:
+            data['last_backup_at'] = None
         return cls(**data)
 
 
