@@ -275,27 +275,29 @@ async def cb_todo_complete(callback: CallbackQuery):
     
     if was_archived:
         await callback.answer("✅ Задача завершена и перемещена в архив!")
-        await callback.message.edit_text(
-            "✅ Повторяющаяся задача завершена!\n\n"
-            f"📋 {todo.title}\n"
-            f"🔄 Выполнено раз: {todo.recurrence_count}\n\n"
-            "Задача перемещена в архив.",
-            parse_mode="HTML"
-        )
+        if todo.is_recurring:
+            # Повторяющаяся задача завершена (достигнута дата окончания)
+            await callback.message.edit_text(
+                f"✅ <b>Задача завершена!</b>\n\n"
+                f"📋 {todo.title}\n"
+                f"🔄 Выполнено раз: {todo.recurrence_count}\n\n"
+                f"📦 Перемещена в архив (достигнута дата окончания)",
+                parse_mode="HTML"
+            )
+        else:
+            # Неповторяющаяся задача выполнена
+            await callback.message.edit_text(
+                f"✅ <b>Задача выполнена!</b>\n\n"
+                f"📋 {todo.title}\n\n"
+                f"📦 Перемещена в архив",
+                parse_mode="HTML"
+            )
     elif todo.is_recurring:
         await callback.answer("✅ Выполнено! Создана следующая итерация.")
         formatted = format_todo(todo, user_storage.user.timezone)
         await callback.message.edit_text(
             f"✅ Выполнено! Следующая итерация:\n\n{formatted}",
             reply_markup=get_todo_keyboard(todo.id, is_recurring=True),
-            parse_mode="HTML"
-        )
-    else:
-        await callback.answer("✅ Задача выполнена!")
-        formatted = format_todo(todo, user_storage.user.timezone)
-        await callback.message.edit_text(
-            formatted,
-            reply_markup=get_todo_keyboard(todo.id, is_recurring=False),
             parse_mode="HTML"
         )
 

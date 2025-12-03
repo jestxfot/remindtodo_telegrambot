@@ -324,10 +324,11 @@ class UserStorage:
             await self._auto_save_if_enabled()
             return todo, False
         else:
-            # Non-recurring - just mark completed
+            # Non-recurring - mark completed and archive
             todo.status = "completed"
             await self._auto_save_if_enabled()
-            return todo, False
+            await self.archive_todo(todo_id)
+            return todo, True
     
     async def complete_reminder(self, reminder_id: str) -> tuple[Optional[Reminder], bool]:
         """
