@@ -1,7 +1,6 @@
 """
 Formatting utilities for displaying data
 """
-from datetime import datetime
 from typing import TYPE_CHECKING, List
 import pytz
 import sys
@@ -9,6 +8,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DEFAULT_TIMEZONE
+from utils.timezone import parse_dt
 
 if TYPE_CHECKING:
     from storage.models import Reminder, Todo
@@ -20,12 +20,8 @@ def format_datetime(dt_str: str, timezone: str = DEFAULT_TIMEZONE, include_time:
         return "—"
     
     try:
-        dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+        dt = parse_dt(dt_str)
         tz = pytz.timezone(timezone)
-        
-        if dt.tzinfo is None:
-            dt = pytz.utc.localize(dt)
-        
         local_dt = dt.astimezone(tz)
         
         if include_time:

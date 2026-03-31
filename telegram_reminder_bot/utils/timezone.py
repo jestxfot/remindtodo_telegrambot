@@ -3,7 +3,8 @@ Global Moscow timezone utilities.
 
 All datetime operations should use these functions to ensure consistent MSK time.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional
 
 import pytz
 
@@ -18,10 +19,10 @@ def now() -> datetime:
 
 def now_str() -> str:
     """Get current time in Moscow as ISO string (for storage)"""
-    return datetime.now(MSK).strftime("%Y-%m-%dT%H:%M:%S")
+    return format_dt(now())
 
 
-def to_msk(dt: datetime) -> datetime:
+def to_msk(dt: Optional[datetime]) -> Optional[datetime]:
     """Convert any datetime to Moscow timezone"""
     if dt is None:
         return None
@@ -31,7 +32,7 @@ def to_msk(dt: datetime) -> datetime:
     return MSK.localize(dt)
 
 
-def parse_dt(dt_str: str) -> datetime:
+def parse_dt(dt_str: Optional[str]) -> Optional[datetime]:
     """Parse ISO datetime string and localize to MSK"""
     if not dt_str:
         return None
@@ -39,12 +40,11 @@ def parse_dt(dt_str: str) -> datetime:
     return to_msk(dt)
 
 
-def format_dt(dt: datetime) -> str:
+def format_dt(dt: Optional[datetime]) -> Optional[str]:
     """Format datetime to ISO string for storage (without tz info)"""
     if dt is None:
         return None
-    if dt.tzinfo is not None:
-        dt = dt.astimezone(MSK)
+    dt = to_msk(dt)
     return dt.strftime("%Y-%m-%dT%H:%M:%S")
 
 
@@ -61,3 +61,9 @@ def normalize_dt_str(dt_str: str | None) -> str | None:
         return format_dt(parse_dt(dt_str))
     except Exception:
         return dt_str
+
+
+def tomorrow_at(hour: int = 9, minute: int = 0) -> datetime:
+    """Get tomorrow at a specific MSK time."""
+    base = now() + timedelta(days=1)
+    return base.replace(hour=hour, minute=minute, second=0, microsecond=0)

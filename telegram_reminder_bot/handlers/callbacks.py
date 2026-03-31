@@ -5,7 +5,7 @@ from aiogram import Router, F
 from aiogram.types import CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
-from datetime import datetime, timedelta
+from datetime import timedelta
 import sys
 import os
 
@@ -13,6 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
 from handlers.auth import get_crypto_for_user
 from utils.keyboards import get_reminder_keyboard, get_snooze_keyboard, get_settings_keyboard
+from utils.timezone import format_dt, now, now_str, tomorrow_at
 
 
 async def get_user_storage(user_id: int):
@@ -121,14 +122,11 @@ async def cb_reminder_snooze(callback: CallbackQuery):
     
     # Calculate snooze duration
     if snooze_value == "tomorrow":
-        now = datetime.utcnow()
-        tomorrow = now + timedelta(days=1)
-        tomorrow_9am = tomorrow.replace(hour=6, minute=0, second=0, microsecond=0)
-        snoozed_until = tomorrow_9am.isoformat()
+        snoozed_until = format_dt(tomorrow_at(9, 0))
         snooze_text = "до завтра"
     else:
         minutes = int(snooze_value)
-        snoozed_until = (datetime.utcnow() + timedelta(minutes=minutes)).isoformat()
+        snoozed_until = format_dt(now() + timedelta(minutes=minutes))
         if minutes < 60:
             snooze_text = f"на {minutes} мин"
         else:
@@ -380,7 +378,7 @@ async def cb_settings_backup(callback: CallbackQuery):
     await callback.message.edit_text(
         f"💾 <b>Ежедневные бэкапы</b>\n\n"
         f"Статус: {status}\n"
-        f"🕐 Время отправки: {backup_hour:02d}:00 UTC\n"
+        f"🕐 Время отправки: {backup_hour:02d}:00 МСК\n"
         f"📅 Последний бэкап: {last_backup_str}\n\n"
         f"Бэкап — зашифрованный файл с вашими данными,\n"
         f"который бот отправляет вам раз в день.",
@@ -431,8 +429,7 @@ async def cb_backup_time(callback: CallbackQuery):
     
     await callback.message.edit_text(
         "🕐 <b>Выберите время отправки бэкапа</b>\n\n"
-        "Время указано в UTC.\n"
-        "Для Москвы (UTC+3): 03:00 UTC = 06:00 МСК",
+        "Время указано в МСК.",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
@@ -449,7 +446,7 @@ async def cb_backup_hour_set(callback: CallbackQuery):
         return
     
     await user_storage.update_user(backup_hour=hour)
-    await callback.answer(f"✅ Время бэкапа: {hour:02d}:00 UTC")
+    await callback.answer(f"✅ Время бэкапа: {hour:02d}:00 МСК")
     
     # Return to backup settings
     await cb_settings_backup(callback)
@@ -483,7 +480,7 @@ async def cb_backup_now(callback: CallbackQuery):
             encrypted_content = await f.read()
         
         file_bytes = encrypted_content.encode('utf-8')
-        date_str = datetime.now().strftime("%Y-%m-%d_%H-%M")
+        date_str = now().strftime("%Y-%m-%d_%H-%M")
         filename = f"backup_{user_id}_{date_str}.json"
         
         input_file = BufferedInputFile(file_bytes, filename=filename)
@@ -503,7 +500,7 @@ async def cb_backup_now(callback: CallbackQuery):
             parse_mode="HTML"
         )
         
-        await user_storage.update_user(last_backup_at=datetime.utcnow().isoformat())
+        await user_storage.update_user(last_backup_at=now_str())
         
     except Exception as e:
         await callback.message.answer(f"❌ Ошибка создания бэкапа: {e}")

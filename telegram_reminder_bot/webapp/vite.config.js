@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: '/remindtodo_telegrambot/',
+  base: '/',
   server: {
     port: 3000,
   },
@@ -13,4 +13,3 @@ export default defineConfig({
     assetsDir: 'assets',
   },
 })
-

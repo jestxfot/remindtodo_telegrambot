@@ -19,6 +19,11 @@ service_exists() {
     systemctl list-unit-files "$1.service" --no-legend 2>/dev/null | grep -q "^$1\.service"
 }
 
+service_enabled() {
+    local service_name="$1"
+    [ -n "$service_name" ] && systemctl is-enabled "$service_name" >/dev/null 2>&1
+}
+
 first_existing_service() {
     local candidate
     for candidate in "$@"; do
@@ -147,8 +152,10 @@ fi
 
 sleep 3
 
-if [ -n "$TUNNEL_SERVICE" ]; then
+if service_enabled "$TUNNEL_SERVICE"; then
     start_service_if_present "$TUNNEL_SERVICE"
+elif [ -n "$TUNNEL_SERVICE" ]; then
+    echo "Tunnel service is installed but disabled, skipping start"
 fi
 
 if [ -n "$BOT_SERVICE" ]; then

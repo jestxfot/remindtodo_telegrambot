@@ -8,7 +8,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from aiogram.types import InlineKeyboardButton
-from datetime import datetime
 import sys
 import os
 
@@ -35,6 +34,7 @@ from utils.keyboards import (
 )
 from utils.date_parser import parse_datetime
 from utils.formatters import format_todo, format_todos_list, format_datetime, format_interval
+from utils.timezone import format_dt, tomorrow_at
 
 router = Router()
 
@@ -238,7 +238,7 @@ async def process_todo_title(message: Message, state: FSMContext):
     # Create todo with extracted data
     todo = await user_storage.create_todo(
         title=clean_title,
-        deadline=deadline.isoformat() if deadline else None,
+        deadline=format_dt(deadline) if deadline else None,
         recurrence_type=recurrence_type if recurrence_type else "none",
         recurrence_interval=recurrence_interval
     )
@@ -450,10 +450,7 @@ async def cb_todo_recurrence_set_new(callback: CallbackQuery, state: FSMContext)
     
     # Check if todo has deadline - required for recurring tasks
     if not todo.deadline:
-        from datetime import datetime, timedelta
-        tomorrow = datetime.utcnow() + timedelta(days=1)
-        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
-        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+        await user_storage.update_todo(todo_id, deadline=format_dt(tomorrow_at(9, 0)))
     
     # Set recurrence type
     await user_storage.update_todo(
@@ -521,10 +518,7 @@ async def cb_todo_recurrence_set(callback: CallbackQuery, state: FSMContext):
     
     # Check if todo has deadline - required for recurring tasks
     if not todo.deadline:
-        from datetime import datetime, timedelta
-        tomorrow = datetime.utcnow() + timedelta(days=1)
-        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
-        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+        await user_storage.update_todo(todo_id, deadline=format_dt(tomorrow_at(9, 0)))
     
     # Set recurrence type
     await user_storage.update_todo(
@@ -604,10 +598,7 @@ async def cb_todo_custom_set(callback: CallbackQuery, state: FSMContext):
     
     # Set deadline if not set
     if not todo.deadline:
-        from datetime import datetime, timedelta
-        tomorrow = datetime.utcnow() + timedelta(days=1)
-        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
-        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+        await user_storage.update_todo(todo_id, deadline=format_dt(tomorrow_at(9, 0)))
     
     await user_storage.update_todo(
         todo_id,
@@ -719,10 +710,7 @@ async def process_todo_custom_interval(message: Message, state: FSMContext):
     
     # Set deadline if not set
     if not todo.deadline:
-        from datetime import datetime, timedelta
-        tomorrow = datetime.utcnow() + timedelta(days=1)
-        tomorrow_9am = tomorrow.replace(hour=9, minute=0, second=0, microsecond=0)
-        await user_storage.update_todo(todo_id, deadline=tomorrow_9am.isoformat())
+        await user_storage.update_todo(todo_id, deadline=format_dt(tomorrow_at(9, 0)))
     
     await user_storage.update_todo(
         todo_id,
@@ -790,7 +778,7 @@ async def process_recurrence_end(message: Message, state: FSMContext):
         )
         return
     
-    await user_storage.update_todo(todo_id, recurrence_end_date=end_date.isoformat())
+    await user_storage.update_todo(todo_id, recurrence_end_date=format_dt(end_date))
     await state.clear()
     
     todo = await user_storage.get_todo(todo_id)
@@ -917,7 +905,7 @@ async def process_deadline(message: Message, state: FSMContext):
         )
         return
     
-    todo = await user_storage.update_todo(todo_id, deadline=deadline.isoformat())
+    todo = await user_storage.update_todo(todo_id, deadline=format_dt(deadline))
     await state.clear()
     
     if todo:

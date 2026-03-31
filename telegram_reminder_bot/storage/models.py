@@ -7,6 +7,8 @@ from enum import Enum
 from typing import Optional, List, Dict, Any
 import json
 
+from utils.timezone import format_dt, now, now_str, parse_dt
+
 
 class RecurrenceType(str, Enum):
     """Types of recurring reminders"""
@@ -45,12 +47,12 @@ class TodoPriority(str, Enum):
 
 def datetime_to_str(dt: Optional[datetime]) -> Optional[str]:
     """Convert datetime to ISO string"""
-    return dt.isoformat() if dt else None
+    return format_dt(dt)
 
 
 def str_to_datetime(s: Optional[str]) -> Optional[datetime]:
     """Convert ISO string to datetime"""
-    return datetime.fromisoformat(s) if s else None
+    return parse_dt(s)
 
 
 @dataclass
@@ -68,8 +70,8 @@ class User:
     backup_enabled: bool = False  # Daily backup to Telegram
     backup_hour: int = 3  # Hour to send backup (0-23, default 3:00)
     last_backup_at: Optional[str] = None  # Last backup timestamp
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=now_str)
+    updated_at: str = field(default_factory=now_str)
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -106,8 +108,8 @@ class Reminder:
     snoozed_until: Optional[str] = None
     last_notification_at: Optional[str] = None
     archived_at: Optional[str] = None  # When moved to archive
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=now_str)
+    updated_at: str = field(default_factory=now_str)
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -143,7 +145,7 @@ class Reminder:
         if not self.is_recurring or not self.recurrence_end_date:
             return False
         end_dt = self.recurrence_end_dt
-        return end_dt and datetime.utcnow() > end_dt
+        return end_dt and now() > end_dt
 
 
 @dataclass
@@ -165,8 +167,8 @@ class Todo:
     # Timestamps
     completed_at: Optional[str] = None
     archived_at: Optional[str] = None  # When moved to archive
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=now_str)
+    updated_at: str = field(default_factory=now_str)
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -204,14 +206,14 @@ class Todo:
         if not self.is_recurring or not self.recurrence_end_date:
             return False
         end_dt = self.recurrence_end_dt
-        return end_dt and datetime.utcnow() > end_dt
+        return end_dt and now() > end_dt
     
     @property
     def is_overdue(self) -> bool:
         if not self.deadline:
             return False
         deadline = str_to_datetime(self.deadline)
-        return deadline and datetime.utcnow() > deadline and self.status not in [TodoStatus.COMPLETED.value, TodoStatus.CANCELLED.value]
+        return deadline and now() > deadline and self.status not in [TodoStatus.COMPLETED.value, TodoStatus.CANCELLED.value]
     
     @property
     def priority_emoji(self) -> str:
@@ -257,8 +259,8 @@ class Note:
     tags: List[str] = field(default_factory=list)
     is_pinned: bool = False
     color: str = "default"
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=now_str)
+    updated_at: str = field(default_factory=now_str)
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -299,8 +301,8 @@ class Password:
     last_used: Optional[str] = None
     password_changed_at: Optional[str] = None
     password_history: List[Dict[str, str]] = field(default_factory=list)  # List of old passwords
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
-    updated_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=now_str)
+    updated_at: str = field(default_factory=now_str)
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -330,7 +332,7 @@ class ArchivedItem:
     """Archived reminder or todo"""
     item_type: str  # "reminder" or "todo"
     data: Dict[str, Any]
-    archived_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    archived_at: str = field(default_factory=now_str)
     
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)

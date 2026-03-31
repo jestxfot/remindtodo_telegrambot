@@ -7,7 +7,6 @@ import hashlib
 import hmac
 import logging
 import uuid
-from datetime import datetime
 from typing import Optional
 import aiohttp
 import sys
@@ -16,6 +15,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import P2P_SECRET
 from storage.json_storage import storage
+from utils.timezone import now_str
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,7 @@ class P2PSyncClient:
         if not self.secret:
             return {}
         
-        timestamp = datetime.utcnow().isoformat()
+        timestamp = now_str()
         signature = hmac.new(
             self.secret,
             timestamp.encode(),

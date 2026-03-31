@@ -5,7 +5,7 @@ import json
 import hmac
 import hashlib
 from urllib.parse import parse_qs
-from datetime import datetime, timedelta
+from datetime import timedelta
 from aiohttp import web
 from aiogram import Router, F
 from aiogram.types import CallbackQuery, Message, WebAppInfo
@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import BOT_TOKEN, WEBAPP_URL
 from storage.json_storage import storage
 from handlers.auth import get_crypto_for_user, is_authenticated
+from utils.timezone import format_dt, now, parse_dt
 
 router = Router()
 
@@ -110,11 +111,11 @@ async def handle_api_events(request: web.Request) -> web.Response:
         end_date = request.query.get('end')
         
         # Default to current month
-        now = datetime.now()
+        current_time = now()
         if not start_date:
-            start_date = (now - timedelta(days=30)).isoformat()
+            start_date = format_dt(current_time - timedelta(days=30))
         if not end_date:
-            end_date = (now + timedelta(days=60)).isoformat()
+            end_date = format_dt(current_time + timedelta(days=60))
         
         # Get reminders
         reminders = await user_storage.get_reminders(include_completed=False)
@@ -131,8 +132,8 @@ async def handle_api_events(request: web.Request) -> web.Response:
                 'type': 'reminder',
                 'title': reminder.title,
                 'date': reminder.remind_at,
-                'time': datetime.fromisoformat(reminder.remind_at).strftime('%H:%M') if reminder.remind_at else None,
-                'isRecurring': reminder.recurrence and reminder.recurrence != 'none',
+                'time': parse_dt(reminder.remind_at).strftime('%H:%M') if reminder.remind_at else None,
+                'isRecurring': reminder.recurrence_type != 'none',
                 'status': reminder.status
             })
         
@@ -145,7 +146,7 @@ async def handle_api_events(request: web.Request) -> web.Response:
                     'date': todo.deadline,
                     'priority': todo.priority,
                     'completed': todo.status == 'completed',
-                    'isRecurring': todo.recurrence and todo.recurrence != 'none'
+                    'isRecurring': todo.recurrence_type != 'none'
                 })
         
         return web.json_response({
@@ -225,7 +226,7 @@ async def show_text_calendar(message: Message, view: str = 'week'):
         await message.answer("🔒 Разблокируйте хранилище: /unlock")
         return
     
-    now = datetime.now()
+    current_time = now()
     timezone = user_storage.user.timezone
     
     # Get events
@@ -239,7 +240,7 @@ async def show_text_calendar(message: Message, view: str = 'week'):
         
         # Show 7 days
         for i in range(7):
-            day = now + timedelta(days=i)
+            day = current_time + timedelta(days=i)
             day_str = day.strftime('%d.%m')
             day_name = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][day.weekday()]
             
@@ -247,20 +248,20 @@ async def show_text_calendar(message: Message, view: str = 'week'):
             
             # Find reminders for this day
             for r in reminders:
-                r_date = datetime.fromisoformat(r.remind_at)
-                if r_date.date() == day.date():
+                r_date = parse_dt(r.remind_at)
+                if r_date and r_date.date() == day.date():
                     time_str = r_date.strftime('%H:%M')
                     day_events.append(f"🔔 {time_str} {r.title}")
             
             # Find todos for this day
             for t in todos:
                 if t.deadline:
-                    t_date = datetime.fromisoformat(t.deadline)
-                    if t_date.date() == day.date():
+                    t_date = parse_dt(t.deadline)
+                    if t_date and t_date.date() == day.date():
                         status = "✅" if t.status == 'completed' else "📋"
                         day_events.append(f"{status} {t.title}")
             
-            is_today = day.date() == now.date()
+            is_today = day.date() == current_time.date()
             day_header = f"{'▶️ ' if is_today else ''}<b>{day_name} {day_str}</b>"
             
             if day_events:
@@ -270,11 +271,11 @@ async def show_text_calendar(message: Message, view: str = 'week'):
                 text += f"{day_header}\n    <i>—</i>\n\n"
     
     else:  # month view
-        text = f"📆 <b>{now.strftime('%B %Y')}</b>\n\n"
+        text = f"📆 <b>{current_time.strftime('%B %Y')}</b>\n\n"
         text += "<code>Пн Вт Ср Чт Пт Сб Вс</code>\n<code>"
         
         # Get first day of month
-        first_day = now.replace(day=1)
+        first_day = current_time.replace(day=1)
         
         # Padding for first week
         weekday = first_day.weekday()
@@ -283,25 +284,25 @@ async def show_text_calendar(message: Message, view: str = 'week'):
         # Count events per day
         events_by_day = {}
         for r in reminders:
-            r_date = datetime.fromisoformat(r.remind_at)
-            if r_date.month == now.month:
-                events_by_day[r_date.day] = events_by_day.get(r_date.day, 0) + 1
+                r_date = parse_dt(r.remind_at)
+                if r_date and r_date.month == current_time.month:
+                    events_by_day[r_date.day] = events_by_day.get(r_date.day, 0) + 1
         for t in todos:
             if t.deadline:
-                t_date = datetime.fromisoformat(t.deadline)
-                if t_date.month == now.month:
+                t_date = parse_dt(t.deadline)
+                if t_date and t_date.month == current_time.month:
                     events_by_day[t_date.day] = events_by_day.get(t_date.day, 0) + 1
         
         # Days of month
         import calendar
-        days_in_month = calendar.monthrange(now.year, now.month)[1]
+        days_in_month = calendar.monthrange(current_time.year, current_time.month)[1]
         
         for day in range(1, days_in_month + 1):
-            date = now.replace(day=day)
+            date = current_time.replace(day=day)
             
             if day in events_by_day:
                 text += f"{day:2}•"
-            elif day == now.day:
+            elif day == current_time.day:
                 text += f"[{day:2}]"
             else:
                 text += f"{day:2} "
@@ -338,4 +339,3 @@ async def cb_calendar_month(callback: CallbackQuery):
     await callback.message.delete()
     await show_text_calendar(callback.message, 'month')
     await callback.answer()
-

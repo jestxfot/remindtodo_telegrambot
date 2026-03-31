@@ -9,7 +9,6 @@ import json
 import hashlib
 import hmac
 import logging
-from datetime import datetime
 from typing import Dict, Optional, Set
 from aiohttp import web
 import sys
@@ -18,6 +17,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import P2P_PORT, P2P_SECRET
 from storage.json_storage import storage
+from utils.timezone import now, now_str, parse_dt
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +61,8 @@ class P2PSyncServer:
         
         # Verify timestamp is recent (within 5 minutes)
         try:
-            ts = datetime.fromisoformat(timestamp)
-            if abs((datetime.utcnow() - ts).total_seconds()) > 300:
+            ts = parse_dt(timestamp)
+            if abs((now() - ts).total_seconds()) > 300:
                 return False
         except ValueError:
             return False
@@ -80,7 +80,7 @@ class P2PSyncServer:
         """Health check endpoint"""
         return web.json_response({
             "status": "ok",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": now_str(),
             "connected_users": len(self._connected_peers)
         })
     
@@ -118,7 +118,7 @@ class P2PSyncServer:
             success = await storage.import_data(user_id, encrypted_data)
             
             if success:
-                new_version = datetime.utcnow().isoformat()
+                new_version = now_str()
                 self._last_sync[user_id] = new_version
                 
                 # Track peer

@@ -11,7 +11,6 @@ Security Features:
 import asyncio
 import logging
 import aiofiles
-from datetime import datetime
 from pathlib import Path
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
@@ -34,6 +33,7 @@ from handlers import (
 from handlers.auth import is_authenticated, get_crypto_for_user
 from utils.keyboards import get_reminder_keyboard
 from utils.formatters import format_reminder
+from utils.timezone import now, now_str, parse_dt
 
 # Configure logging
 logging.basicConfig(
@@ -63,24 +63,12 @@ dp.include_router(passwords_router)
 dp.include_router(callbacks_router)
 dp.include_router(calendar_router)
 
-
-def make_naive_utc(dt: datetime) -> datetime:
-    """Convert datetime to naive UTC for comparison"""
-    if dt is None:
-        return None
-    if dt.tzinfo is not None:
-        # Convert to UTC and remove timezone info
-        from datetime import timezone
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
-
-
 async def check_reminders():
     """Check and trigger due reminders for authenticated users"""
     while True:
         try:
             user_ids = await storage.get_all_user_ids()
-            now = datetime.utcnow()
+            current_time = now()
             
             for user_id in user_ids:
                 # Only check for authenticated users
@@ -96,35 +84,34 @@ async def check_reminders():
                     reminders = await user_storage.get_reminders()
                     
                     for reminder in reminders:
-                        remind_at = make_naive_utc(reminder.remind_at_dt)
-                        snoozed_until = make_naive_utc(reminder.snoozed_until_dt)
+                        remind_at = reminder.remind_at_dt
+                        snoozed_until = reminder.snoozed_until_dt
                         
                         if reminder.status == "pending" and remind_at:
-                            if remind_at <= now:
+                            if remind_at <= current_time:
                                 await user_storage.update_reminder(
                                     reminder.id,
                                     status="active",
-                                    last_notification_at=now.isoformat()
+                                    last_notification_at=now_str()
                                 )
                                 await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=True)
                         
                         elif reminder.status == "active" and reminder.is_persistent:
                             if reminder.last_notification_at:
-                                last_notif = datetime.fromisoformat(reminder.last_notification_at.replace('Z', '+00:00'))
-                                last_notif = make_naive_utc(last_notif) or last_notif
-                                if (now - last_notif).total_seconds() >= reminder.persistent_interval:
+                                last_notif = parse_dt(reminder.last_notification_at)
+                                if last_notif and (current_time - last_notif).total_seconds() >= reminder.persistent_interval:
                                     await user_storage.update_reminder(
                                         reminder.id,
-                                        last_notification_at=now.isoformat()
+                                        last_notification_at=now_str()
                                     )
                                     await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=False)
                         
                         elif reminder.status == "snoozed" and snoozed_until:
-                            if snoozed_until <= now:
+                            if snoozed_until <= current_time:
                                 await user_storage.update_reminder(
                                     reminder.id,
                                     status="active",
-                                    last_notification_at=now.isoformat()
+                                    last_notification_at=now_str()
                                 )
                                 await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=True)
                 
@@ -194,8 +181,8 @@ async def check_and_send_backups():
     while True:
         try:
             user_ids = await storage.get_all_user_ids()
-            now = datetime.utcnow()
-            current_hour = now.hour
+            current_time = now()
+            current_hour = current_time.hour
             
             for user_id in user_ids:
                 # Only for authenticated users
@@ -222,14 +209,14 @@ async def check_and_send_backups():
                     # Check if already backed up today
                     last_backup = getattr(user, 'last_backup_at', None)
                     if last_backup:
-                        last_backup_dt = datetime.fromisoformat(last_backup)
-                        if last_backup_dt.date() == now.date():
+                        last_backup_dt = parse_dt(last_backup)
+                        if last_backup_dt and last_backup_dt.date() == current_time.date():
                             continue
                     
                     # Create backup
                     stats = await user_storage.get_statistics()
                     backup_data = {
-                        "backup_date": now.isoformat(),
+                        "backup_date": now_str(),
                         "user_id": user_id,
                         "timezone": user.timezone,
                         "statistics": stats,
@@ -244,7 +231,7 @@ async def check_and_send_backups():
                         
                         # Send backup file
                         file_bytes = encrypted_content.encode('utf-8')
-                        date_str = now.strftime("%Y-%m-%d")
+                        date_str = current_time.strftime("%Y-%m-%d")
                         filename = f"backup_{user_id}_{date_str}.json"
                         
                         input_file = BufferedInputFile(file_bytes, filename=filename)
@@ -265,7 +252,7 @@ async def check_and_send_backups():
                         )
                         
                         # Update last backup time
-                        await user_storage.update_user(last_backup_at=now.isoformat())
+                        await user_storage.update_user(last_backup_at=now_str())
                         logger.info(f"Backup sent to user {user_id}")
                 
                 except Exception as e:

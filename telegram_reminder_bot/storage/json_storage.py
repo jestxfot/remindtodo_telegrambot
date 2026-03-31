@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crypto.encryption import CryptoManager
 from storage.models import User, Reminder, Todo, Note, Password, UserData, ArchivedItem, RecurrenceType
 from config import DATA_DIR
+from utils.timezone import format_dt, normalize_dt_str, now, now_str, parse_dt
 
 
 class EncryptedJSONStorage:
@@ -65,7 +66,7 @@ class EncryptedJSONStorage:
                 "algorithm": "AES-256-GCM",
                 "key_fingerprint": crypto.key_fingerprint,
                 "user_id": user_id,
-                "last_modified": datetime.utcnow().isoformat(),
+                "last_modified": now_str(),
                 "data": encrypted_content
             }
             
@@ -139,7 +140,7 @@ class UserStorage:
     async def save(self) -> None:
         """Save user data to storage"""
         if self._data and self._crypto:
-            self._data.user.updated_at = datetime.utcnow().isoformat()
+            self._data.user.updated_at = now_str()
             await self.storage.save_user_data(self.user_id, self._data, self._crypto)
     
     async def _auto_save_if_enabled(self) -> None:
@@ -151,19 +152,47 @@ class UserStorage:
     @property
     def user(self) -> User:
         return self._data.user
+
+    @staticmethod
+    def _normalize_datetime_value(value):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return format_dt(value)
+        if isinstance(value, str):
+            return normalize_dt_str(value)
+        return value
+
+    def _normalize_datetime_fields(self, kwargs: Dict[str, Any], *field_names: str) -> Dict[str, Any]:
+        normalized = dict(kwargs)
+        for field_name in field_names:
+            if field_name in normalized:
+                normalized[field_name] = self._normalize_datetime_value(normalized.get(field_name))
+        return normalized
     
     async def update_user(self, **kwargs) -> User:
         """Update user fields"""
+        kwargs = self._normalize_datetime_fields(kwargs, "last_backup_at", "created_at", "updated_at")
         for key, value in kwargs.items():
             if hasattr(self._data.user, key):
                 setattr(self._data.user, key, value)
-        self._data.user.updated_at = datetime.utcnow().isoformat()
+        self._data.user.updated_at = now_str()
         await self._auto_save_if_enabled()
         return self._data.user
     
     # Reminder methods
     async def create_reminder(self, **kwargs) -> Reminder:
         """Create a new reminder"""
+        kwargs = self._normalize_datetime_fields(
+            kwargs,
+            "remind_at",
+            "recurrence_end_date",
+            "snoozed_until",
+            "last_notification_at",
+            "archived_at",
+            "created_at",
+            "updated_at",
+        )
         reminder = Reminder(
             id=str(uuid.uuid4()),
             user_id=self.user_id,
@@ -190,10 +219,20 @@ class UserStorage:
         """Update a reminder"""
         reminder = await self.get_reminder(reminder_id)
         if reminder:
+            kwargs = self._normalize_datetime_fields(
+                kwargs,
+                "remind_at",
+                "recurrence_end_date",
+                "snoozed_until",
+                "last_notification_at",
+                "archived_at",
+                "created_at",
+                "updated_at",
+            )
             for key, value in kwargs.items():
                 if hasattr(reminder, key):
                     setattr(reminder, key, value)
-            reminder.updated_at = datetime.utcnow().isoformat()
+            reminder.updated_at = now_str()
             await self._auto_save_if_enabled()
         return reminder
     
@@ -210,6 +249,15 @@ class UserStorage:
     async def create_todo(self, **kwargs) -> Todo:
         """Create a new todo"""
         max_order = max([t.order for t in self._data.todos], default=0)
+        kwargs = self._normalize_datetime_fields(
+            kwargs,
+            "deadline",
+            "recurrence_end_date",
+            "completed_at",
+            "archived_at",
+            "created_at",
+            "updated_at",
+        )
         todo = Todo(
             id=str(uuid.uuid4()),
             user_id=self.user_id,
@@ -240,10 +288,19 @@ class UserStorage:
         """Update a todo"""
         todo = await self.get_todo(todo_id)
         if todo:
+            kwargs = self._normalize_datetime_fields(
+                kwargs,
+                "deadline",
+                "recurrence_end_date",
+                "completed_at",
+                "archived_at",
+                "created_at",
+                "updated_at",
+            )
             for key, value in kwargs.items():
                 if hasattr(todo, key):
                     setattr(todo, key, value)
-            todo.updated_at = datetime.utcnow().isoformat()
+            todo.updated_at = now_str()
             await self._auto_save_if_enabled()
         return todo
     
@@ -265,16 +322,16 @@ class UserStorage:
         if not todo:
             return None, False
         
-        now = datetime.utcnow()
-        todo.completed_at = now.isoformat()
+        current_time = now()
+        todo.completed_at = now_str()
         todo.recurrence_count += 1
         
         # Check if recurring
         if todo.is_recurring:
             # Check if end date reached
             if todo.recurrence_end_date:
-                end_dt = datetime.fromisoformat(todo.recurrence_end_date)
-                if now >= end_dt:
+                end_dt = parse_dt(todo.recurrence_end_date)
+                if current_time >= end_dt:
                     # End date reached - archive
                     todo.status = "completed"
                     await self._auto_save_if_enabled()
@@ -283,7 +340,7 @@ class UserStorage:
             
             # Calculate next deadline based on CURRENT deadline (not now!)
             interval = todo.recurrence_interval or 1
-            base_time = datetime.fromisoformat(todo.deadline) if todo.deadline else now
+            base_time = parse_dt(todo.deadline) if todo.deadline else current_time
             
             # Calculate interval delta based on recurrence type
             if todo.recurrence_type == RecurrenceType.DAILY.value:
@@ -305,15 +362,15 @@ class UserStorage:
             
             # If next deadline is still in the past, keep adding intervals
             # until we get a future date (handles late completions)
-            while next_deadline <= now:
+            while next_deadline <= current_time:
                 next_deadline = next_deadline + delta
                 # Safety: don't loop forever
-                if (next_deadline - now).days > 365 * 10:
+                if (next_deadline - current_time).days > 365 * 10:
                     break
             
             # Check if next deadline exceeds end date
             if todo.recurrence_end_date:
-                end_dt = datetime.fromisoformat(todo.recurrence_end_date)
+                end_dt = parse_dt(todo.recurrence_end_date)
                 if next_deadline > end_dt:
                     # This was the last iteration - archive
                     todo.status = "completed"
@@ -321,7 +378,7 @@ class UserStorage:
                     await self.archive_todo(todo_id)
                     return todo, True
             
-            todo.deadline = next_deadline.isoformat()
+            todo.deadline = format_dt(next_deadline)
             
             # Reset status for next iteration
             todo.status = "pending"
@@ -334,15 +391,6 @@ class UserStorage:
             await self._auto_save_if_enabled()
             await self.archive_todo(todo_id)
             return todo, True
-    
-    def _to_naive_utc(self, dt: datetime) -> datetime:
-        """Convert datetime to naive UTC for comparison"""
-        if dt is None:
-            return None
-        if dt.tzinfo is not None:
-            from datetime import timezone
-            return dt.astimezone(timezone.utc).replace(tzinfo=None)
-        return dt
     
     async def complete_reminder(self, reminder_id: str) -> tuple[Optional[Reminder], bool]:
         """
@@ -361,15 +409,15 @@ class UserStorage:
         if not reminder:
             return None, False
         
-        now = datetime.utcnow()
+        current_time = now()
         reminder.recurrence_count += 1
         
         # Check if recurring
         if reminder.is_recurring:
             # Check if end date reached
             if reminder.recurrence_end_date:
-                end_dt = self._to_naive_utc(datetime.fromisoformat(reminder.recurrence_end_date))
-                if now >= end_dt:
+                end_dt = parse_dt(reminder.recurrence_end_date)
+                if current_time >= end_dt:
                     # End date reached - archive
                     reminder.status = "completed"
                     await self._auto_save_if_enabled()
@@ -378,7 +426,7 @@ class UserStorage:
             
             # Calculate next remind_at from CURRENT remind_at (NOT from snoozed_until!)
             # This ensures snooze doesn't affect future iterations
-            current_remind = self._to_naive_utc(datetime.fromisoformat(reminder.remind_at))
+            current_remind = parse_dt(reminder.remind_at)
             interval = reminder.recurrence_interval or 1
             
             # Calculate interval delta based on recurrence type
@@ -400,15 +448,15 @@ class UserStorage:
             next_remind = current_remind + delta
             
             # If next time is still in the past, keep adding intervals
-            while next_remind <= now:
+            while next_remind <= current_time:
                 next_remind = next_remind + delta
                 # Safety: don't loop forever
-                if (next_remind - now).days > 365 * 10:
+                if (next_remind - current_time).days > 365 * 10:
                     break
             
             # Check if next remind exceeds end date
             if reminder.recurrence_end_date:
-                end_dt = self._to_naive_utc(datetime.fromisoformat(reminder.recurrence_end_date))
+                end_dt = parse_dt(reminder.recurrence_end_date)
                 if next_remind > end_dt:
                     # This was the last iteration - archive
                     reminder.status = "completed"
@@ -416,7 +464,7 @@ class UserStorage:
                     await self.archive_reminder(reminder_id)
                     return reminder, True
             
-            reminder.remind_at = next_remind.isoformat()
+            reminder.remind_at = format_dt(next_remind)
             reminder.status = "pending"
             reminder.last_notification_at = None
             reminder.snooze_count = 0
@@ -449,7 +497,7 @@ class UserStorage:
                 archived = ArchivedItem(
                     item_type="todo",
                     data=todo.to_dict(),
-                    archived_at=datetime.utcnow().isoformat()
+                    archived_at=now_str()
                 )
                 self._data.archive.append(archived)
                 await self._auto_save_if_enabled()
@@ -466,7 +514,7 @@ class UserStorage:
                 archived = ArchivedItem(
                     item_type="reminder",
                     data=reminder.to_dict(),
-                    archived_at=datetime.utcnow().isoformat()
+                    archived_at=now_str()
                 )
                 self._data.archive.append(archived)
                 await self._auto_save_if_enabled()
@@ -605,7 +653,7 @@ class UserStorage:
             for key, value in kwargs.items():
                 if hasattr(note, key) and key not in ['title', 'content']:
                     setattr(note, key, value)
-            note.updated_at = datetime.utcnow().isoformat()
+            note.updated_at = now_str()
             await self._auto_save_if_enabled()
         return note
     
@@ -647,7 +695,7 @@ class UserStorage:
             notes=encrypted_notes,
             totp_secret=encrypted_totp,
             recovery_codes=encrypted_recovery,
-            password_changed_at=datetime.utcnow().isoformat(),
+            password_changed_at=now_str(),
             password_history=[],
             **kwargs
         )
@@ -726,7 +774,7 @@ class UserStorage:
                 if save_to_history and pwd.password:
                     history_entry = {
                         "password": pwd.password,  # Already encrypted
-                        "changed_at": pwd.password_changed_at or datetime.utcnow().isoformat()
+                        "changed_at": pwd.password_changed_at or now_str()
                     }
                     if pwd.password_history is None:
                         pwd.password_history = []
@@ -736,7 +784,7 @@ class UserStorage:
                         pwd.password_history = pwd.password_history[-10:]
                 
                 pwd.password = self._crypto.encrypt(password)
-                pwd.password_changed_at = datetime.utcnow().isoformat()
+                pwd.password_changed_at = now_str()
             
             if notes is not None:
                 pwd.notes = self._crypto.encrypt(notes) if notes else None
@@ -747,10 +795,11 @@ class UserStorage:
             if recovery_codes is not None:
                 pwd.recovery_codes = self._crypto.encrypt(recovery_codes) if recovery_codes else None
             
+            kwargs = self._normalize_datetime_fields(kwargs, "last_used", "password_changed_at", "created_at", "updated_at")
             for key, value in kwargs.items():
                 if hasattr(pwd, key) and key not in ['username', 'password', 'notes', 'totp_secret', 'recovery_codes']:
                     setattr(pwd, key, value)
-            pwd.updated_at = datetime.utcnow().isoformat()
+            pwd.updated_at = now_str()
             await self._auto_save_if_enabled()
         return pwd
     
@@ -778,7 +827,7 @@ class UserStorage:
     
     async def mark_password_used(self, password_id: str) -> Optional[Password]:
         """Mark password as used"""
-        return await self.update_password(password_id, last_used=datetime.utcnow().isoformat())
+        return await self.update_password(password_id, last_used=now_str())
     
     # Statistics
     async def get_statistics(self) -> Dict[str, Any]:

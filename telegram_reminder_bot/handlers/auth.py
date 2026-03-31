@@ -28,6 +28,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DATA_DIR, SESSION_DURATIONS, DEFAULT_SESSION_DURATION
 from crypto.encryption import CryptoManager, derive_key_from_password
 from utils.keyboards import get_main_keyboard
+from utils.timezone import format_dt, now, now_str, parse_dt
 
 router = Router()
 
@@ -77,7 +78,7 @@ def save_password_hash(user_id: int, password: str) -> str:
     
     meta = {
         "version": "1.0",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": now_str(),
         "password_hash": password_hash,
         "salt": salt_b64,
         "last_login": None
@@ -111,7 +112,7 @@ def verify_password(user_id: int, password: str) -> tuple[bool, str | None]:
     is_valid = secrets.compare_digest(stored_hash, computed_hash)
     
     if is_valid:
-        meta["last_login"] = datetime.utcnow().isoformat()
+        meta["last_login"] = now_str()
         with open(meta_file, 'w') as f:
             json.dump(meta, f, indent=2)
     
@@ -120,7 +121,7 @@ def verify_password(user_id: int, password: str) -> tuple[bool, str | None]:
 
 def save_persistent_session(user_id: int, password: str, salt_b64: str, duration_key: str):
     """Save encrypted session for persistent login"""
-    expires_at = datetime.utcnow() + timedelta(minutes=SESSION_DURATIONS[duration_key])
+    expires_at = now() + timedelta(minutes=SESSION_DURATIONS[duration_key])
     
     # Create session token
     session_token = secrets.token_hex(32)
@@ -140,8 +141,8 @@ def save_persistent_session(user_id: int, password: str, salt_b64: str, duration
         "encrypted_password": encrypted_password,
         "salt": salt_b64,
         "duration": duration_key,
-        "created_at": datetime.utcnow().isoformat(),
-        "expires_at": expires_at.isoformat()
+        "created_at": now_str(),
+        "expires_at": format_dt(expires_at)
     }
     
     with open(get_session_file(user_id), 'w') as f:
@@ -162,8 +163,8 @@ def load_persistent_session(user_id: int) -> tuple[bool, str | None, str | None]
             session_data = json.load(f)
         
         # Check expiration
-        expires_at = datetime.fromisoformat(session_data["expires_at"])
-        if datetime.utcnow() > expires_at:
+        expires_at = parse_dt(session_data["expires_at"])
+        if now() > expires_at:
             # Session expired, delete it
             os.remove(session_file)
             return False, None, None
@@ -203,12 +204,12 @@ def create_session(user_id: int, password: str, salt_b64: str, duration_key: str
     crypto = CryptoManager(master_key=key)
     crypto._salt = salt
     
-    expires_at = datetime.utcnow() + timedelta(minutes=SESSION_DURATIONS[duration_key])
+    expires_at = now() + timedelta(minutes=SESSION_DURATIONS[duration_key])
     
     _active_sessions[user_id] = {
         "crypto": crypto,
-        "created_at": datetime.utcnow(),
-        "last_activity": datetime.utcnow(),
+        "created_at": now(),
+        "last_activity": now(),
         "expires_at": expires_at,
         "duration_key": duration_key
     }
@@ -234,13 +235,13 @@ def get_session(user_id: int) -> CryptoManager | None:
         return None
     
     # Check if session expired
-    if datetime.utcnow() > session["expires_at"]:
+    if now() > session["expires_at"]:
         del _active_sessions[user_id]
         delete_persistent_session(user_id)
         return None
     
     # Update last activity
-    session["last_activity"] = datetime.utcnow()
+    session["last_activity"] = now()
     return session["crypto"]
 
 
@@ -309,14 +310,14 @@ def get_session_info_dict(user_id: int) -> dict:
     }
 
     expires = session["expires_at"]
-    remaining = expires - datetime.utcnow()
+    remaining = expires - now()
     remaining_minutes = max(0, int(remaining.total_seconds() / 60))
 
     return {
         "active": True,
         "duration_key": session["duration_key"],
         "duration_label": duration_labels.get(session["duration_key"], "?"),
-        "expires_at": expires.isoformat(),
+        "expires_at": format_dt(expires),
         "remaining_minutes": remaining_minutes,
         "available_durations": [
             {"key": "30min", "label": "30 минут"},
@@ -390,7 +391,7 @@ def get_session_info(user_id: int) -> str:
     }
     
     expires = session["expires_at"]
-    remaining = expires - datetime.utcnow()
+    remaining = expires - now()
     
     if remaining.days > 0:
         remaining_str = f"{remaining.days} дн"
@@ -672,7 +673,7 @@ async def cb_session_change(callback: CallbackQuery):
     
     if session:
         # Update session
-        new_expires = datetime.utcnow() + timedelta(minutes=SESSION_DURATIONS[duration_key])
+        new_expires = now() + timedelta(minutes=SESSION_DURATIONS[duration_key])
         session["expires_at"] = new_expires
         session["duration_key"] = duration_key
         
@@ -681,7 +682,7 @@ async def cb_session_change(callback: CallbackQuery):
         if session_file.exists():
             with open(session_file, 'r') as f:
                 session_data = json.load(f)
-            session_data["expires_at"] = new_expires.isoformat()
+            session_data["expires_at"] = format_dt(new_expires)
             session_data["duration"] = duration_key
             with open(session_file, 'w') as f:
                 json.dump(session_data, f, indent=2)

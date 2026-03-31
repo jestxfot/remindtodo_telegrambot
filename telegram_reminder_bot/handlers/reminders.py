@@ -6,7 +6,6 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from datetime import datetime
 import sys
 import os
 
@@ -33,6 +32,7 @@ from utils.keyboards import (
 from utils.formatters import format_interval
 from utils.date_parser import parse_datetime
 from utils.formatters import format_reminder, format_reminders_list
+from utils.timezone import format_dt
 
 router = Router()
 
@@ -121,7 +121,7 @@ async def process_reminder_text(message: Message, state: FSMContext):
         
         reminder = await user_storage.create_reminder(
             title=clean_title,
-            remind_at=remind_at.isoformat(),
+            remind_at=format_dt(remind_at),
             is_persistent=True,
             with_sound=True,
             recurrence_type=recurrence_type if recurrence_type else "none",
@@ -191,7 +191,7 @@ async def process_reminder_time(message: Message, state: FSMContext):
     
     reminder = await user_storage.create_reminder(
         title=title,
-        remind_at=remind_at.isoformat(),
+        remind_at=format_dt(remind_at),
         is_persistent=True,
         with_sound=True
     )
@@ -391,7 +391,7 @@ async def process_edit_time(message: Message, state: FSMContext):
         )
         return
     
-    reminder = await user_storage.update_reminder(reminder_id, remind_at=new_time.isoformat())
+    reminder = await user_storage.update_reminder(reminder_id, remind_at=format_dt(new_time))
     await state.clear()
     
     if reminder:
