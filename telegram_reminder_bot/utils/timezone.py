@@ -3,7 +3,7 @@ Global Moscow timezone utilities.
 
 All datetime operations should use these functions to ensure consistent MSK time.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 # Moscow timezone - the only timezone used in this app
@@ -61,3 +61,9 @@ def normalize_dt_str(dt_str: str | None) -> str | None:
         return format_dt(parse_dt(dt_str))
     except Exception:
         return dt_str
+
+
+def tomorrow_at(hour: int = 9, minute: int = 0) -> datetime:
+    """Get tomorrow at a specific MSK time."""
+    base = now() + timedelta(days=1)
+    return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
