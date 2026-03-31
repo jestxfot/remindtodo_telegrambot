@@ -8,6 +8,8 @@ function SettingsPage({ user, onLogout }) {
   const [stats, setStats] = useState(null)
   const [session, setSession] = useState(null)
   const [showDurationPicker, setShowDurationPicker] = useState(false)
+  const [reminderIntervalMinutes, setReminderIntervalMinutes] = useState('5')
+  const [savingInterval, setSavingInterval] = useState(false)
 
   useEffect(() => {
     loadSettings()
@@ -22,6 +24,7 @@ function SettingsPage({ user, onLogout }) {
       })
       const data = await response.json()
       setSettings(data)
+      setReminderIntervalMinutes(String(data.reminder_interval_minutes ?? 5))
     } catch (err) {
       console.error('Failed to load settings:', err)
     } finally {
@@ -85,6 +88,40 @@ function SettingsPage({ user, onLogout }) {
 
   const handleChangePassword = () => {
     WebApp.showAlert('Для смены пароля используйте команду /changepassword в боте')
+  }
+
+  const handleReminderIntervalSave = async () => {
+    const interval = parseInt(reminderIntervalMinutes, 10)
+    if (!Number.isFinite(interval) || interval < 1) {
+      WebApp.showAlert('Укажите интервал в минутах, минимум 1')
+      return
+    }
+
+    setSavingInterval(true)
+    try {
+      WebApp.HapticFeedback.impactOccurred('medium')
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Telegram-Init-Data': WebApp.initData || ''
+        },
+        body: JSON.stringify({ reminder_interval_minutes: interval })
+      })
+      const data = await response.json()
+      if (response.ok) {
+        setSettings(data)
+        setReminderIntervalMinutes(String(data.reminder_interval_minutes ?? interval))
+        WebApp.HapticFeedback.notificationOccurred('success')
+      } else {
+        WebApp.showAlert(data.error || 'Не удалось сохранить настройку')
+      }
+    } catch (err) {
+      console.error('Failed to update reminder interval:', err)
+      WebApp.showAlert('Ошибка сохранения настройки')
+    } finally {
+      setSavingInterval(false)
+    }
   }
 
   const formatRemainingTime = (minutes) => {
@@ -199,6 +236,38 @@ function SettingsPage({ user, onLogout }) {
         </div>
       </section>
 
+      <section className="settings-section">
+        <h2 className="section-title">🔔 Напоминания</h2>
+        <div className="settings-card">
+          <div className="form-group">
+            <label>Интервал повторных уведомлений</label>
+            <div className="interval-input">
+              <span>Каждые</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={reminderIntervalMinutes}
+                onChange={e => setReminderIntervalMinutes(e.target.value)}
+                className="interval-number"
+              />
+              <span>минут</span>
+            </div>
+            <p className="duration-hint">
+              Значение по умолчанию для новых напоминаний и сразу для всех текущих постоянных напоминаний.
+            </p>
+            <button
+              type="button"
+              className="submit-button"
+              onClick={handleReminderIntervalSave}
+              disabled={savingInterval}
+            >
+              {savingInterval ? 'Сохранение...' : 'Сохранить интервал'}
+            </button>
+          </div>
+        </div>
+      </section>
+
       {/* Info */}
       <section className="settings-section">
         <h2 className="section-title">ℹ️ Информация</h2>
@@ -213,6 +282,12 @@ function SettingsPage({ user, onLogout }) {
             <span className="settings-item-icon">🌍</span>
             <span className="settings-item-text">Часовой пояс</span>
             <span className="settings-item-value">{settings?.timezone || 'Europe/Moscow'}</span>
+          </div>
+
+          <div className="settings-item info">
+            <span className="settings-item-icon">🔁</span>
+            <span className="settings-item-text">Повтор уведомлений</span>
+            <span className="settings-item-value">{settings?.reminder_interval_minutes || 5} мин</span>
           </div>
         </div>
       </section>
@@ -254,4 +329,3 @@ function SettingsPage({ user, onLogout }) {
 }
 
 export default SettingsPage
-

@@ -65,6 +65,9 @@ class User:
     master_password_hash: Optional[str] = None  # For password vault
     encryption_salt: Optional[str] = None
     is_active: bool = True
+    reminder_interval_minutes: int = 5  # Persistent reminder interval in minutes
+    bot_blocked_at: Optional[str] = None
+    bot_block_reason: Optional[str] = None
     # Backup settings
     backup_enabled: bool = False  # Daily backup to Telegram
     backup_hour: int = 3  # Hour to send backup (0-23, default 3:00)
@@ -80,6 +83,12 @@ class User:
         # Handle legacy data without backup fields
         if 'backup_enabled' not in data:
             data['backup_enabled'] = False
+        if 'reminder_interval_minutes' not in data:
+            data['reminder_interval_minutes'] = 5
+        if 'bot_blocked_at' not in data:
+            data['bot_blocked_at'] = None
+        if 'bot_block_reason' not in data:
+            data['bot_block_reason'] = None
         if 'backup_hour' not in data:
             data['backup_hour'] = 3
         if 'last_backup_at' not in data:
@@ -101,7 +110,7 @@ class Reminder:
     recurrence_end_date: Optional[str] = None  # When recurring reminder ends
     recurrence_count: int = 0  # How many times reminder has triggered
     is_persistent: bool = True
-    persistent_interval: int = 60
+    persistent_interval: int = 300
     with_sound: bool = True
     snooze_count: int = 0
     snoozed_until: Optional[str] = None

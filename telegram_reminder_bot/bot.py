@@ -18,18 +18,20 @@ import hashlib
 import os
 from pathlib import Path
 import fcntl
+from datetime import timedelta
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.types import BotCommand
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
-from config import BOT_TOKEN, DATA_DIR
+from config import BOT_TOKEN, DATA_DIR, PERSISTENT_REMINDER_INTERVAL
 from storage.models import now
 from storage.json_storage import storage
 from handlers import commands_router, notifications_router
 from handlers.auth import is_authenticated, get_crypto_for_user
 from utils.keyboards import get_reminder_notification_keyboard
-from utils.timezone import to_msk, parse_dt, format_dt
+from utils.timezone import to_msk, parse_dt, format_dt, now_str
 
 # Configure logging
 logging.basicConfig(
@@ -101,6 +103,8 @@ async def check_reminders():
                 
                 try:
                     user_storage = await storage.get_user_storage(user_id, crypto)
+                    if not getattr(user_storage.user, 'is_active', True):
+                        continue
                     reminders = await user_storage.get_reminders()
                     
                     if check_count % 30 == 1 and reminders:
@@ -125,6 +129,14 @@ async def check_reminders():
                                 await send_reminder_notification(user_id, reminder, user_storage.user.timezone, is_initial=True)
 
                         elif reminder.status == "active" and reminder.is_persistent:
+                            if remind_at and current_time - remind_at > timedelta(days=7):
+                                logger.warning(
+                                    "Auto-cancelling stale reminder %s for user %s: older than 7 days",
+                                    reminder.id[:8],
+                                    user_id,
+                                )
+                                await user_storage.update_reminder(reminder.id, status="cancelled")
+                                continue
                             if reminder.last_notification_at:
                                 last_notif = parse_dt(reminder.last_notification_at)
                                 if (current_time - last_notif).total_seconds() >= reminder.persistent_interval:
@@ -175,9 +187,39 @@ async def send_reminder_notification(user_id: int, reminder, timezone: str, is_i
         )
         
         logger.info(f"Sent notification for reminder {reminder.id} to user {user_id}")
-        
+        return True
+    except TelegramForbiddenError as e:
+        logger.warning("User %s blocked the bot or account is unavailable: %s", user_id, e)
+        await mark_user_notifications_unavailable(user_id, str(e))
+        return False
+    except TelegramBadRequest as e:
+        error_text = str(e).lower()
+        if "chat not found" in error_text or "user is deactivated" in error_text:
+            logger.warning("User %s chat unavailable: %s", user_id, e)
+            await mark_user_notifications_unavailable(user_id, str(e))
+            return False
+        logger.error(f"Failed to send reminder notification: {e}")
+        return False
     except Exception as e:
         logger.error(f"Failed to send reminder notification: {e}")
+        return False
+
+
+async def mark_user_notifications_unavailable(user_id: int, reason: str):
+    """Disable notifications for users who blocked the bot or removed the account."""
+    crypto = get_crypto_for_user(user_id)
+    if not crypto:
+        return
+
+    try:
+        user_storage = await storage.get_user_storage(user_id, crypto)
+        await user_storage.update_user(
+            is_active=False,
+            bot_blocked_at=now_str(),
+            bot_block_reason=reason[:500],
+        )
+    except Exception as e:
+        logger.error("Failed to mark user %s as inactive after notification failure: %s", user_id, e)
 
 
 async def set_bot_commands():

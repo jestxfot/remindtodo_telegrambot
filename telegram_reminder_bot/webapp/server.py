@@ -206,6 +206,8 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
             if not self.ensure_bot_available():
                 return
             return self.handle_update_session_duration()
+        elif path == '/api/settings':
+            return self.handle_update_settings()
         elif path == '/api/todos':
             return self.handle_create_todo()
         elif path == '/api/reminders':
@@ -404,6 +406,13 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
                 'message': 'Ошибка загрузки данных. Попробуйте перезайти через бота (/lock, затем /unlock)'
             }, 500)
             return None, None
+
+        if not user_storage.user.is_active:
+            self.run_async(user_storage.update_user(
+                is_active=True,
+                bot_blocked_at=None,
+                bot_block_reason=None
+            ))
         
         return user, user_storage
     
@@ -495,11 +504,13 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         body = self.get_request_body()
         remind_at = normalize_dt_str(body.get('remind_at'))
         recurrence_end_date = normalize_dt_str(body.get('recurrence_end_date'))
+        interval_seconds = int(getattr(user_storage.user, 'reminder_interval_minutes', 5)) * 60
         reminder = self.run_async(user_storage.create_reminder(
             title=body.get('title', 'Напоминание'),
             description=body.get('description'),
             remind_at=remind_at,
             is_persistent=body.get('is_persistent', True),
+            persistent_interval=body.get('persistent_interval', interval_seconds),
             recurrence_type=body.get('recurrence_type', 'none'),
             recurrence_interval=body.get('recurrence_interval'),
             recurrence_end_date=recurrence_end_date,
@@ -694,8 +705,41 @@ class APIHandler(http.server.SimpleHTTPRequestHandler):
         
         return self.send_json({
             'timezone': user_storage.user.timezone,
-            'backup_enabled': user_storage.user.backup_enabled
+            'backup_enabled': user_storage.user.backup_enabled,
+            'reminder_interval_minutes': getattr(user_storage.user, 'reminder_interval_minutes', 5),
+            'is_active': user_storage.user.is_active,
+            'bot_blocked_at': getattr(user_storage.user, 'bot_blocked_at', None),
+            'bot_block_reason': getattr(user_storage.user, 'bot_block_reason', None),
         })
+
+    def handle_update_settings(self):
+        user, user_storage = self.require_auth()
+        if not user_storage:
+            return
+
+        body = self.get_request_body()
+        update_fields = {}
+
+        if 'reminder_interval_minutes' in body:
+            try:
+                interval_minutes = int(body.get('reminder_interval_minutes'))
+            except (TypeError, ValueError):
+                return self.send_json({'error': 'Invalid reminder interval'}, 400)
+
+            if interval_minutes < 1:
+                return self.send_json({'error': 'Reminder interval must be at least 1 minute'}, 400)
+
+            update_fields['reminder_interval_minutes'] = interval_minutes
+            self.run_async(user_storage.update_persistent_reminder_interval(interval_minutes * 60))
+
+        if 'backup_enabled' in body:
+            update_fields['backup_enabled'] = bool(body.get('backup_enabled'))
+
+        if not update_fields:
+            return self.send_json({'error': 'No supported settings provided'}, 400)
+
+        self.run_async(user_storage.update_user(**update_fields))
+        return self.handle_get_settings()
     
     def handle_get_session(self):
         """Get session info"""

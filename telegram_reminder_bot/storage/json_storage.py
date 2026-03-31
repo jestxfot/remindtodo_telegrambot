@@ -236,6 +236,18 @@ class UserStorage:
         if include_completed:
             return self._data.reminders.copy()
         return [r for r in self._data.reminders if r.status not in ['completed', 'cancelled']]
+
+    async def update_persistent_reminder_interval(self, interval_seconds: int) -> int:
+        """Update persistent interval for all persistent reminders. Returns count."""
+        updated = 0
+        for reminder in self._data.reminders:
+            if reminder.is_persistent:
+                reminder.persistent_interval = interval_seconds
+                reminder.updated_at = now_str()
+                updated += 1
+        if updated:
+            await self._auto_save_if_enabled()
+        return updated
     
     async def update_reminder(self, reminder_id: str, **kwargs) -> Optional[Reminder]:
         """Update a reminder"""

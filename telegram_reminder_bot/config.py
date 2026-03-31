@@ -60,7 +60,7 @@ ENCRYPTION_ALGORITHM = "AES-256-GCM"
 PBKDF2_ITERATIONS = 600000
 
 # Reminder settings
-PERSISTENT_REMINDER_INTERVAL = 60  # Seconds between persistent reminders
+PERSISTENT_REMINDER_INTERVAL = 300  # Seconds between persistent reminders (default 5 min)
 MAX_SNOOZE_TIMES = 10
 DEFAULT_SNOOZE_MINUTES = 5
 

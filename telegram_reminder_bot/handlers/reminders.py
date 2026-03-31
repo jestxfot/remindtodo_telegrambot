@@ -123,6 +123,7 @@ async def process_reminder_text(message: Message, state: FSMContext):
             title=clean_title,
             remind_at=format_dt(remind_at),
             is_persistent=True,
+            persistent_interval=getattr(user_storage.user, 'reminder_interval_minutes', 5) * 60,
             with_sound=True,
             recurrence_type=recurrence_type if recurrence_type else "none",
             recurrence_interval=recurrence_interval
@@ -193,6 +194,7 @@ async def process_reminder_time(message: Message, state: FSMContext):
         title=title,
         remind_at=format_dt(remind_at),
         is_persistent=True,
+        persistent_interval=getattr(user_storage.user, 'reminder_interval_minutes', 5) * 60,
         with_sound=True
     )
     

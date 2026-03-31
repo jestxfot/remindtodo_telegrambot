@@ -281,10 +281,10 @@ async def cb_settings_interval(callback: CallbackQuery):
     """Show notification interval settings"""
     builder = InlineKeyboardBuilder()
     intervals = [
-        ("30 секунд", "30"),
-        ("1 минута", "60"),
-        ("2 минуты", "120"),
-        ("5 минут", "300"),
+        ("1 минута", "1"),
+        ("5 минут", "5"),
+        ("10 минут", "10"),
+        ("30 минут", "30"),
     ]
     
     for name, value in intervals:
@@ -297,7 +297,7 @@ async def cb_settings_interval(callback: CallbackQuery):
     
     await callback.message.edit_text(
         "🔔 <b>Интервал уведомлений</b>\n\n"
-        "Как часто повторять напоминание:",
+        "Как часто повторять постоянные напоминания:",
         reply_markup=builder.as_markup(),
         parse_mode="HTML"
     )
@@ -306,10 +306,17 @@ async def cb_settings_interval(callback: CallbackQuery):
 @router.callback_query(F.data.startswith("set_interval:"))
 async def cb_set_interval(callback: CallbackQuery):
     """Set notification interval"""
-    interval = int(callback.data.split(":")[1])
-    await callback.answer(f"✅ Интервал: {interval} сек")
+    interval_minutes = int(callback.data.split(":")[1])
+    user_storage = await get_user_storage(callback.from_user.id)
+    if not user_storage:
+        await callback.answer("🔒 Разблокируйте: /unlock", show_alert=True)
+        return
+
+    await user_storage.update_user(reminder_interval_minutes=interval_minutes)
+    await user_storage.update_persistent_reminder_interval(interval_minutes * 60)
+    await callback.answer(f"✅ Интервал: {interval_minutes} мин")
     await callback.message.edit_text(
-        f"✅ Интервал уведомлений: <b>{interval} секунд</b>",
+        f"✅ Интервал уведомлений: <b>{interval_minutes} минут</b>",
         parse_mode="HTML"
     )
 
