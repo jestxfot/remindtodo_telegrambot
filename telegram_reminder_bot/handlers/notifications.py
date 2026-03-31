@@ -3,15 +3,15 @@ Notification handlers - callbacks for reminder notifications
 """
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
-from datetime import datetime, timedelta
+from datetime import timedelta
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from storage.json_storage import storage
-from storage.models import now
 from handlers.auth import get_crypto_for_user
 from utils.keyboards import get_snooze_keyboard
+from utils.timezone import format_dt, now, tomorrow_at
 
 router = Router()
 
@@ -86,13 +86,11 @@ async def cb_reminder_snooze(callback: CallbackQuery):
     # Calculate snooze duration in Moscow timezone
     current_time = now()
     if snooze_value == "tomorrow":
-        tomorrow = current_time + timedelta(days=1)
-        tomorrow_9am = tomorrow.replace(hour=6, minute=0, second=0, microsecond=0)
-        snoozed_until = tomorrow_9am.strftime('%Y-%m-%dT%H:%M:%S')
+        snoozed_until = format_dt(tomorrow_at(9, 0))
         snooze_text = "до завтра"
     else:
         minutes = int(snooze_value)
-        snoozed_until = (current_time + timedelta(minutes=minutes)).strftime('%Y-%m-%dT%H:%M:%S')
+        snoozed_until = format_dt(current_time + timedelta(minutes=minutes))
         if minutes < 60:
             snooze_text = f"на {minutes} мин"
         else:
@@ -121,4 +119,3 @@ async def cb_reminder_snooze(callback: CallbackQuery):
         f"📝 {reminder.title}",
         parse_mode="HTML"
     )
-
