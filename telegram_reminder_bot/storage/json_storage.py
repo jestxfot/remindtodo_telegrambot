@@ -19,9 +19,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from crypto.encryption import CryptoManager
-from storage.models import User, Reminder, Todo, Note, Password, UserData, ArchivedItem, RecurrenceType
+from storage.models import User, Reminder, Todo, Note, Password, UserData, ArchivedItem, RecurrenceType, Attachment, now, now_str
 from config import DATA_DIR
-from utils.timezone import format_dt, normalize_dt_str, now, now_str, parse_dt
+from utils.timezone import parse_dt, format_dt, normalize_dt_str
 
 
 class EncryptedJSONStorage:
@@ -83,6 +83,7 @@ class EncryptedJSONStorage:
             filepath = self._get_user_file(user_id)
             
             if not filepath.exists():
+                print(f"[INFO] No data file for user {user_id}")
                 return None
             
             async with aiofiles.open(filepath, 'r', encoding='utf-8') as f:
@@ -90,9 +91,24 @@ class EncryptedJSONStorage:
             
             file_data = json.loads(content)
             
+            # Check key fingerprint for debugging
+            stored_fingerprint = file_data.get("key_fingerprint", "unknown")
+            current_fingerprint = crypto.key_fingerprint
+            if stored_fingerprint != current_fingerprint:
+                print(f"[WARN] Key fingerprint mismatch for user {user_id}!")
+                print(f"[WARN] Stored: {stored_fingerprint}, Current: {current_fingerprint}")
+                print(f"[WARN] This means the decryption key is different - data may not decrypt!")
+            
             # Decrypt the data
             decrypted = crypto.decrypt_to_json(file_data["data"])
-            return UserData.from_dict(decrypted)
+            
+            user_data = UserData.from_dict(decrypted)
+            print(f"[INFO] Loaded data for user {user_id}: "
+                  f"{len(user_data.reminders)} reminders, "
+                  f"{len(user_data.todos)} todos, "
+                  f"{len(user_data.notes)} notes")
+            
+            return user_data
     
     async def user_exists(self, user_id: int) -> bool:
         """Check if user data file exists"""
@@ -126,13 +142,26 @@ class UserStorage:
     
     async def load(self) -> None:
         """Load user data from storage"""
+        filepath = self.storage._get_user_file(self.user_id)
+        file_exists = filepath.exists()
+        
         try:
             self._data = await self.storage.load_user_data(self.user_id, self._crypto)
-        except Exception:
+        except Exception as e:
+            # CRITICAL: If file exists but decryption failed, don't create empty data!
+            # This would overwrite all user data on next save!
+            if file_exists:
+                print(f"[CRITICAL] Failed to decrypt data for user {self.user_id}: {e}")
+                print(f"[CRITICAL] File exists at {filepath}, refusing to create empty data")
+                raise ValueError(f"Failed to decrypt existing data. Wrong key or corrupted file.") from e
             self._data = None
         
-        # Initialize empty data if needed
+        # Only initialize empty data if user file doesn't exist (new user)
         if self._data is None:
+            if file_exists:
+                # This shouldn't happen - we should have raised above
+                raise ValueError("Data file exists but couldn't be loaded. Refusing to overwrite.")
+            print(f"[INFO] Creating new storage for user {self.user_id}")
             self._data = UserData(
                 user=User(id=self.user_id)
             )
@@ -140,6 +169,19 @@ class UserStorage:
     async def save(self) -> None:
         """Save user data to storage"""
         if self._data and self._crypto:
+            # Safety check: warn if saving nearly empty data when file exists
+            filepath = self.storage._get_user_file(self.user_id)
+            if filepath.exists():
+                total_items = (
+                    len(self._data.reminders) + 
+                    len(self._data.todos) + 
+                    len(self._data.notes) + 
+                    len(self._data.passwords)
+                )
+                if total_items == 0:
+                    print(f"[WARN] Saving empty data for user {self.user_id} - file exists with data!")
+                    print(f"[WARN] This might indicate a data loss bug. Check decryption.")
+            
             self._data.user.updated_at = now_str()
             await self.storage.save_user_data(self.user_id, self._data, self._crypto)
     
@@ -152,27 +194,9 @@ class UserStorage:
     @property
     def user(self) -> User:
         return self._data.user
-
-    @staticmethod
-    def _normalize_datetime_value(value):
-        if value is None:
-            return None
-        if isinstance(value, datetime):
-            return format_dt(value)
-        if isinstance(value, str):
-            return normalize_dt_str(value)
-        return value
-
-    def _normalize_datetime_fields(self, kwargs: Dict[str, Any], *field_names: str) -> Dict[str, Any]:
-        normalized = dict(kwargs)
-        for field_name in field_names:
-            if field_name in normalized:
-                normalized[field_name] = self._normalize_datetime_value(normalized.get(field_name))
-        return normalized
     
     async def update_user(self, **kwargs) -> User:
         """Update user fields"""
-        kwargs = self._normalize_datetime_fields(kwargs, "last_backup_at", "created_at", "updated_at")
         for key, value in kwargs.items():
             if hasattr(self._data.user, key):
                 setattr(self._data.user, key, value)
@@ -183,16 +207,14 @@ class UserStorage:
     # Reminder methods
     async def create_reminder(self, **kwargs) -> Reminder:
         """Create a new reminder"""
-        kwargs = self._normalize_datetime_fields(
-            kwargs,
-            "remind_at",
-            "recurrence_end_date",
-            "snoozed_until",
-            "last_notification_at",
-            "archived_at",
-            "created_at",
-            "updated_at",
-        )
+        if "remind_at" in kwargs:
+            kwargs["remind_at"] = normalize_dt_str(kwargs.get("remind_at"))
+        if "recurrence_end_date" in kwargs:
+            kwargs["recurrence_end_date"] = normalize_dt_str(kwargs.get("recurrence_end_date"))
+        if "snoozed_until" in kwargs:
+            kwargs["snoozed_until"] = normalize_dt_str(kwargs.get("snoozed_until"))
+        if "last_notification_at" in kwargs:
+            kwargs["last_notification_at"] = normalize_dt_str(kwargs.get("last_notification_at"))
         reminder = Reminder(
             id=str(uuid.uuid4()),
             user_id=self.user_id,
@@ -217,18 +239,16 @@ class UserStorage:
     
     async def update_reminder(self, reminder_id: str, **kwargs) -> Optional[Reminder]:
         """Update a reminder"""
+        if "remind_at" in kwargs:
+            kwargs["remind_at"] = normalize_dt_str(kwargs.get("remind_at"))
+        if "recurrence_end_date" in kwargs:
+            kwargs["recurrence_end_date"] = normalize_dt_str(kwargs.get("recurrence_end_date"))
+        if "snoozed_until" in kwargs:
+            kwargs["snoozed_until"] = normalize_dt_str(kwargs.get("snoozed_until"))
+        if "last_notification_at" in kwargs:
+            kwargs["last_notification_at"] = normalize_dt_str(kwargs.get("last_notification_at"))
         reminder = await self.get_reminder(reminder_id)
         if reminder:
-            kwargs = self._normalize_datetime_fields(
-                kwargs,
-                "remind_at",
-                "recurrence_end_date",
-                "snoozed_until",
-                "last_notification_at",
-                "archived_at",
-                "created_at",
-                "updated_at",
-            )
             for key, value in kwargs.items():
                 if hasattr(reminder, key):
                     setattr(reminder, key, value)
@@ -248,16 +268,13 @@ class UserStorage:
     # Todo methods
     async def create_todo(self, **kwargs) -> Todo:
         """Create a new todo"""
+        if "deadline" in kwargs:
+            kwargs["deadline"] = normalize_dt_str(kwargs.get("deadline"))
+        if "recurrence_end_date" in kwargs:
+            kwargs["recurrence_end_date"] = normalize_dt_str(kwargs.get("recurrence_end_date"))
+        if "completed_at" in kwargs:
+            kwargs["completed_at"] = normalize_dt_str(kwargs.get("completed_at"))
         max_order = max([t.order for t in self._data.todos], default=0)
-        kwargs = self._normalize_datetime_fields(
-            kwargs,
-            "deadline",
-            "recurrence_end_date",
-            "completed_at",
-            "archived_at",
-            "created_at",
-            "updated_at",
-        )
         todo = Todo(
             id=str(uuid.uuid4()),
             user_id=self.user_id,
@@ -286,17 +303,14 @@ class UserStorage:
     
     async def update_todo(self, todo_id: str, **kwargs) -> Optional[Todo]:
         """Update a todo"""
+        if "deadline" in kwargs:
+            kwargs["deadline"] = normalize_dt_str(kwargs.get("deadline"))
+        if "recurrence_end_date" in kwargs:
+            kwargs["recurrence_end_date"] = normalize_dt_str(kwargs.get("recurrence_end_date"))
+        if "completed_at" in kwargs:
+            kwargs["completed_at"] = normalize_dt_str(kwargs.get("completed_at"))
         todo = await self.get_todo(todo_id)
         if todo:
-            kwargs = self._normalize_datetime_fields(
-                kwargs,
-                "deadline",
-                "recurrence_end_date",
-                "completed_at",
-                "archived_at",
-                "created_at",
-                "updated_at",
-            )
             for key, value in kwargs.items():
                 if hasattr(todo, key):
                     setattr(todo, key, value)
@@ -321,11 +335,11 @@ class UserStorage:
         todo = await self.get_todo(todo_id)
         if not todo:
             return None, False
-        
+
         current_time = now()
-        todo.completed_at = now_str()
+        todo.completed_at = format_dt(current_time)
         todo.recurrence_count += 1
-        
+
         # Check if recurring
         if todo.is_recurring:
             # Check if end date reached
@@ -337,11 +351,11 @@ class UserStorage:
                     await self._auto_save_if_enabled()
                     await self.archive_todo(todo_id)
                     return todo, True
-            
+
             # Calculate next deadline based on CURRENT deadline (not now!)
             interval = todo.recurrence_interval or 1
             base_time = parse_dt(todo.deadline) if todo.deadline else current_time
-            
+
             # Calculate interval delta based on recurrence type
             if todo.recurrence_type == RecurrenceType.DAILY.value:
                 delta = relativedelta(days=interval)
@@ -352,14 +366,14 @@ class UserStorage:
             elif todo.recurrence_type == RecurrenceType.YEARLY.value:
                 delta = relativedelta(years=interval)
             elif todo.recurrence_type == RecurrenceType.CUSTOM.value:
-                # Custom interval is stored in MINUTES
-                delta = timedelta(minutes=interval)
+                # Custom interval is stored in DAYS (WebApp presets)
+                delta = timedelta(days=interval)
             else:
                 delta = relativedelta(days=interval)
-            
+
             # Add one interval
             next_deadline = base_time + delta
-            
+
             # If next deadline is still in the past, keep adding intervals
             # until we get a future date (handles late completions)
             while next_deadline <= current_time:
@@ -367,7 +381,7 @@ class UserStorage:
                 # Safety: don't loop forever
                 if (next_deadline - current_time).days > 365 * 10:
                     break
-            
+
             # Check if next deadline exceeds end date
             if todo.recurrence_end_date:
                 end_dt = parse_dt(todo.recurrence_end_date)
@@ -377,7 +391,7 @@ class UserStorage:
                     await self._auto_save_if_enabled()
                     await self.archive_todo(todo_id)
                     return todo, True
-            
+
             todo.deadline = format_dt(next_deadline)
             
             # Reset status for next iteration
@@ -408,10 +422,10 @@ class UserStorage:
         reminder = await self.get_reminder(reminder_id)
         if not reminder:
             return None, False
-        
+
         current_time = now()
         reminder.recurrence_count += 1
-        
+
         # Check if recurring
         if reminder.is_recurring:
             # Check if end date reached
@@ -428,7 +442,7 @@ class UserStorage:
             # This ensures snooze doesn't affect future iterations
             current_remind = parse_dt(reminder.remind_at)
             interval = reminder.recurrence_interval or 1
-            
+
             # Calculate interval delta based on recurrence type
             if reminder.recurrence_type == RecurrenceType.DAILY.value:
                 delta = relativedelta(days=interval)
@@ -439,21 +453,21 @@ class UserStorage:
             elif reminder.recurrence_type == RecurrenceType.YEARLY.value:
                 delta = relativedelta(years=interval)
             elif reminder.recurrence_type == RecurrenceType.CUSTOM.value:
-                # Custom interval is stored in MINUTES
-                delta = timedelta(minutes=interval)
+                # Custom interval is stored in DAYS (WebApp presets)
+                delta = timedelta(days=interval)
             else:
                 delta = relativedelta(days=interval)
-            
+
             # Add one interval
             next_remind = current_remind + delta
-            
+
             # If next time is still in the past, keep adding intervals
             while next_remind <= current_time:
                 next_remind = next_remind + delta
                 # Safety: don't loop forever
                 if (next_remind - current_time).days > 365 * 10:
                     break
-            
+
             # Check if next remind exceeds end date
             if reminder.recurrence_end_date:
                 end_dt = parse_dt(reminder.recurrence_end_date)
@@ -463,7 +477,7 @@ class UserStorage:
                     await self._auto_save_if_enabled()
                     await self.archive_reminder(reminder_id)
                     return reminder, True
-            
+
             reminder.remind_at = format_dt(next_remind)
             reminder.status = "pending"
             reminder.last_notification_at = None
@@ -642,6 +656,30 @@ class UserStorage:
         notes.sort(key=lambda n: (not n.is_pinned, n.updated_at), reverse=True)
         return notes
     
+    async def get_notes_decrypted(self) -> List[Dict[str, Any]]:
+        """Get all notes with decrypted content"""
+        notes = await self.get_notes()
+        decrypted_notes = []
+        for note in notes:
+            try:
+                decrypted_content = self._crypto.decrypt_to_string(note.content)
+            except:
+                decrypted_content = note.content  # Fallback if not encrypted
+            decrypted_notes.append({
+                "id": note.id,
+                "title": note.title,
+                "content": decrypted_content,
+                "is_pinned": note.is_pinned,
+                "tags": note.tags,
+                "links": note.links,
+                "status": note.status,
+                "color": note.color,
+                "attachments": note.attachments,
+                "created_at": note.created_at,
+                "updated_at": note.updated_at
+            })
+        return decrypted_notes
+    
     async def update_note(self, note_id: str, title: Optional[str] = None, content: Optional[str] = None, **kwargs) -> Optional[Note]:
         """Update a note"""
         note = await self.get_note(note_id)
@@ -656,16 +694,216 @@ class UserStorage:
             note.updated_at = now_str()
             await self._auto_save_if_enabled()
         return note
-    
+
     async def delete_note(self, note_id: str) -> bool:
-        """Delete a note"""
+        """Delete a note and its attachments"""
         for i, n in enumerate(self._data.notes):
             if n.id == note_id:
+                # Delete attachment files
+                for att in n.attachments:
+                    await self._delete_attachment_file(att.get('file_path'))
+                    if att.get('thumbnail_path'):
+                        await self._delete_attachment_file(att.get('thumbnail_path'))
                 self._data.notes.pop(i)
                 await self._auto_save_if_enabled()
                 return True
         return False
     
+    # ============ ATTACHMENT METHODS ============
+    
+    def _get_attachments_dir(self) -> Path:
+        """Get directory for storing encrypted attachments"""
+        att_dir = Path(DATA_DIR) / "attachments" / str(self.user_id)
+        att_dir.mkdir(parents=True, exist_ok=True)
+        return att_dir
+    
+    async def save_attachment(self, file_data: bytes, filename: str, file_type: str) -> Attachment:
+        """
+        Save an encrypted file attachment.
+        Returns Attachment object with file metadata.
+        Max file size: 50MB
+        """
+        MAX_SIZE = 50 * 1024 * 1024  # 50MB
+        if len(file_data) > MAX_SIZE:
+            raise ValueError(f"File too large. Max size is 50MB, got {len(file_data) / (1024*1024):.1f}MB")
+        
+        attachment_id = str(uuid.uuid4())
+        att_dir = self._get_attachments_dir()
+        
+        # Encrypt file data
+        encrypted_data = self._crypto.encrypt_bytes(file_data)
+        
+        # Save encrypted file
+        file_path = att_dir / f"{attachment_id}.enc"
+        async with aiofiles.open(file_path, 'wb') as f:
+            await f.write(encrypted_data)
+        
+        # Create thumbnail for images
+        thumbnail_path = None
+        if file_type.startswith('image/'):
+            try:
+                thumbnail_path = await self._create_thumbnail(file_data, attachment_id, att_dir)
+            except Exception:
+                pass  # Thumbnail creation is optional
+        
+        attachment = Attachment(
+            id=attachment_id,
+            filename=filename,
+            file_type=file_type,
+            file_size=len(file_data),
+            file_path=str(file_path),
+            thumbnail_path=thumbnail_path
+        )
+        
+        return attachment
+    
+    async def _create_thumbnail(self, image_data: bytes, attachment_id: str, att_dir: Path) -> Optional[str]:
+        """Create encrypted thumbnail for image"""
+        try:
+            from PIL import Image
+            import io
+            
+            # Open image
+            img = Image.open(io.BytesIO(image_data))
+            
+            # Create thumbnail
+            img.thumbnail((200, 200))
+            
+            # Save to bytes
+            thumb_bytes = io.BytesIO()
+            img.save(thumb_bytes, format='JPEG', quality=70)
+            thumb_data = thumb_bytes.getvalue()
+            
+            # Encrypt and save
+            encrypted_thumb = self._crypto.encrypt_bytes(thumb_data)
+            thumb_path = att_dir / f"{attachment_id}_thumb.enc"
+            async with aiofiles.open(thumb_path, 'wb') as f:
+                await f.write(encrypted_thumb)
+            
+            return str(thumb_path)
+        except ImportError:
+            return None  # PIL not installed
+        except Exception:
+            return None
+    
+    async def get_attachment_data(self, file_path: str) -> Optional[bytes]:
+        """Read and decrypt attachment file"""
+        try:
+            path = Path(file_path)
+            if not path.exists():
+                return None
+            
+            async with aiofiles.open(path, 'rb') as f:
+                encrypted_data = await f.read()
+            
+            return self._crypto.decrypt_bytes(encrypted_data)
+        except Exception:
+            return None
+    
+    async def _delete_attachment_file(self, file_path: Optional[str]):
+        """Delete attachment file from disk"""
+        if not file_path:
+            return
+        try:
+            path = Path(file_path)
+            if path.exists():
+                path.unlink()
+        except Exception:
+            pass
+    
+    async def add_attachment_to_note(self, note_id: str, attachment: Attachment) -> bool:
+        """Add attachment to a note"""
+        note = await self.get_note(note_id)
+        if not note:
+            return False
+        
+        note.attachments.append(attachment.to_dict())
+        note.updated_at = now_str()
+        await self._auto_save_if_enabled()
+        return True
+
+    async def remove_attachment_from_note(self, note_id: str, attachment_id: str) -> bool:
+        """Remove attachment from a note"""
+        note = await self.get_note(note_id)
+        if not note:
+            return False
+        
+        for i, att in enumerate(note.attachments):
+            if att.get('id') == attachment_id:
+                # Delete files
+                await self._delete_attachment_file(att.get('file_path'))
+                await self._delete_attachment_file(att.get('thumbnail_path'))
+                # Remove from list
+                note.attachments.pop(i)
+                note.updated_at = now_str()
+                await self._auto_save_if_enabled()
+                return True
+        return False
+
+    async def add_attachment_to_reminder(self, reminder_id: str, attachment: Attachment) -> bool:
+        """Add attachment to a reminder"""
+        reminder = await self.get_reminder(reminder_id)
+        if not reminder:
+            return False
+        
+        reminder.attachments.append(attachment.to_dict())
+        reminder.updated_at = now_str()
+        await self._auto_save_if_enabled()
+        return True
+
+    async def remove_attachment_from_reminder(self, reminder_id: str, attachment_id: str) -> bool:
+        """Remove attachment from a reminder"""
+        reminder = await self.get_reminder(reminder_id)
+        if not reminder:
+            return False
+        
+        for i, att in enumerate(reminder.attachments):
+            if att.get('id') == attachment_id:
+                # Delete files
+                await self._delete_attachment_file(att.get('file_path'))
+                await self._delete_attachment_file(att.get('thumbnail_path'))
+                # Remove from list
+                reminder.attachments.pop(i)
+                reminder.updated_at = now_str()
+                await self._auto_save_if_enabled()
+                return True
+        return False
+
+    # Todo attachment methods
+    async def add_attachment_to_todo(self, todo_id: str, filename: str, file_data: str, file_type: str) -> Optional[Dict]:
+        """Add attachment to a todo"""
+        todo = await self.get_todo(todo_id)
+        if not todo:
+            return None
+        
+        # Save the encrypted file
+        attachment = await self._save_attachment(filename, file_data, file_type)
+        if not attachment:
+            return None
+        
+        todo.attachments.append(attachment)
+        todo.updated_at = now_str()
+        await self._auto_save_if_enabled()
+        return attachment
+
+    async def remove_attachment_from_todo(self, todo_id: str, attachment_id: str) -> bool:
+        """Remove attachment from a todo"""
+        todo = await self.get_todo(todo_id)
+        if not todo:
+            return False
+        
+        for i, att in enumerate(todo.attachments):
+            if att.get('id') == attachment_id:
+                # Delete files
+                await self._delete_attachment_file(att.get('file_path'))
+                await self._delete_attachment_file(att.get('thumbnail_path'))
+                # Remove from list
+                todo.attachments.pop(i)
+                todo.updated_at = now_str()
+                await self._auto_save_if_enabled()
+                return True
+        return False
+
     # Password methods
     async def create_password(
         self,
@@ -748,6 +986,43 @@ class UserStorage:
         passwords.sort(key=lambda p: (not p.is_favorite, p.service_name.lower()))
         return passwords
     
+    async def get_passwords_decrypted(self) -> List[Dict[str, Any]]:
+        """Get all passwords with decrypted fields"""
+        passwords = await self.get_passwords()
+        decrypted_passwords = []
+        for pwd in passwords:
+            try:
+                decrypted_passwords.append({
+                    "id": pwd.id,
+                    "service_name": pwd.service_name,
+                    "username": self._crypto.decrypt_to_string(pwd.username),
+                    "password": self._crypto.decrypt_to_string(pwd.password),
+                    "url": pwd.url,
+                    "notes": self._crypto.decrypt_to_string(pwd.notes) if pwd.notes else None,
+                    "totp_secret": self._crypto.decrypt_to_string(pwd.totp_secret) if pwd.totp_secret else None,
+                    "has_2fa": pwd.has_2fa,
+                    "category": pwd.category,
+                    "is_favorite": pwd.is_favorite,
+                    "created_at": pwd.created_at,
+                    "updated_at": pwd.updated_at
+                })
+            except Exception as e:
+                # Fallback if decryption fails
+                decrypted_passwords.append({
+                    "id": pwd.id,
+                    "service_name": pwd.service_name,
+                    "username": "***",
+                    "password": "***",
+                    "url": pwd.url,
+                    "notes": None,
+                    "has_2fa": pwd.has_2fa,
+                    "category": pwd.category,
+                    "is_favorite": pwd.is_favorite,
+                    "created_at": pwd.created_at,
+                    "updated_at": pwd.updated_at
+                })
+        return decrypted_passwords
+    
     async def search_passwords(self, query: str) -> List[Password]:
         """Search passwords by service name"""
         query = query.lower()
@@ -782,7 +1057,7 @@ class UserStorage:
                     # Keep only last 10 passwords in history
                     if len(pwd.password_history) > 10:
                         pwd.password_history = pwd.password_history[-10:]
-                
+
                 pwd.password = self._crypto.encrypt(password)
                 pwd.password_changed_at = now_str()
             
@@ -795,7 +1070,6 @@ class UserStorage:
             if recovery_codes is not None:
                 pwd.recovery_codes = self._crypto.encrypt(recovery_codes) if recovery_codes else None
             
-            kwargs = self._normalize_datetime_fields(kwargs, "last_used", "password_changed_at", "created_at", "updated_at")
             for key, value in kwargs.items():
                 if hasattr(pwd, key) and key not in ['username', 'password', 'notes', 'totp_secret', 'recovery_codes']:
                     setattr(pwd, key, value)

@@ -151,6 +151,23 @@ class CryptoManager:
         """Decrypt to JSON object"""
         return json.loads(self.decrypt_to_string(encrypted_data))
     
+    def encrypt_bytes(self, data: bytes) -> bytes:
+        """
+        Encrypt binary data, returning raw encrypted bytes (not base64).
+        Useful for large files to avoid base64 overhead.
+        """
+        nonce = os.urandom(NONCE_SIZE)
+        ciphertext = self._aesgcm.encrypt(nonce, data, None)
+        return nonce + ciphertext
+    
+    def decrypt_bytes(self, encrypted_data: bytes) -> bytes:
+        """
+        Decrypt raw encrypted bytes (not base64).
+        """
+        nonce = encrypted_data[:NONCE_SIZE]
+        ciphertext = encrypted_data[NONCE_SIZE:]
+        return self._aesgcm.decrypt(nonce, ciphertext, None)
+    
     def encrypt_json_file(self, data: Any, filepath: str) -> None:
         """Encrypt and save data to file"""
         encrypted = self.encrypt(data)

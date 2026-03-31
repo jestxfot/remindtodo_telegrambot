@@ -6,8 +6,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional, List, Dict, Any
 import json
-
-from utils.timezone import format_dt, now, now_str, parse_dt
+from utils.timezone import MSK, now, now_str, parse_dt, format_dt
 
 
 class RecurrenceType(str, Enum):
@@ -46,13 +45,13 @@ class TodoPriority(str, Enum):
 
 
 def datetime_to_str(dt: Optional[datetime]) -> Optional[str]:
-    """Convert datetime to ISO string"""
-    return format_dt(dt)
+    """Convert datetime to storage ISO string (MSK, without tz info)."""
+    return format_dt(dt) if dt else None
 
 
 def str_to_datetime(s: Optional[str]) -> Optional[datetime]:
-    """Convert ISO string to datetime"""
-    return parse_dt(s)
+    """Convert ISO string (with/without tz) to aware datetime in MSK."""
+    return parse_dt(s) if s else None
 
 
 @dataclass
@@ -72,10 +71,10 @@ class User:
     last_backup_at: Optional[str] = None  # Last backup timestamp
     created_at: str = field(default_factory=now_str)
     updated_at: str = field(default_factory=now_str)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'User':
         # Handle legacy data without backup fields
@@ -108,12 +107,15 @@ class Reminder:
     snoozed_until: Optional[str] = None
     last_notification_at: Optional[str] = None
     archived_at: Optional[str] = None  # When moved to archive
+    attachments: List[Dict[str, Any]] = field(default_factory=list)  # List of Attachment dicts
+    tags: List[str] = field(default_factory=list)  # Tags for categorization
+    links: List[str] = field(default_factory=list)  # Clickable URLs
     created_at: str = field(default_factory=now_str)
     updated_at: str = field(default_factory=now_str)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Reminder':
         # Handle legacy data
@@ -121,7 +123,21 @@ class Reminder:
             data['recurrence_count'] = 0
         if 'archived_at' not in data:
             data['archived_at'] = None
+        if 'attachments' not in data:
+            data['attachments'] = []
+        if 'tags' not in data:
+            data['tags'] = []
+        if 'links' not in data:
+            data['links'] = []
         return cls(**data)
+    
+    @property
+    def has_attachments(self) -> bool:
+        return len(self.attachments) > 0
+    
+    @property
+    def has_links(self) -> bool:
+        return len(self.links) > 0
     
     @property
     def is_recurring(self) -> bool:
@@ -145,8 +161,18 @@ class Reminder:
         if not self.is_recurring or not self.recurrence_end_date:
             return False
         end_dt = self.recurrence_end_dt
-        return end_dt and now() > end_dt
+        return bool(end_dt and now() > end_dt)
 
+
+@dataclass
+class Subtask:
+    """Subtask model for Todo items"""
+    id: str
+    title: str
+    completed: bool = False
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
 
 @dataclass
 class Todo:
@@ -157,6 +183,7 @@ class Todo:
     description: Optional[str] = None
     status: str = TodoStatus.PENDING.value
     priority: str = TodoPriority.MEDIUM.value
+    progress: int = 0  # 0-100 percent completion
     deadline: Optional[str] = None
     order: int = 0
     # Recurrence fields
@@ -164,15 +191,20 @@ class Todo:
     recurrence_interval: Optional[int] = None
     recurrence_end_date: Optional[str] = None  # When recurring todo ends
     recurrence_count: int = 0  # How many times todo was completed
+    # Additional fields (like notes/reminders)
+    subtasks: List[Dict[str, Any]] = field(default_factory=list)  # List of subtask dicts
+    attachments: List[Dict[str, Any]] = field(default_factory=list)  # List of Attachment dicts
+    tags: List[str] = field(default_factory=list)
+    links: List[str] = field(default_factory=list)
     # Timestamps
     completed_at: Optional[str] = None
     archived_at: Optional[str] = None  # When moved to archive
     created_at: str = field(default_factory=now_str)
     updated_at: str = field(default_factory=now_str)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Todo':
         # Handle legacy data
@@ -184,8 +216,18 @@ class Todo:
             data['recurrence_end_date'] = None
         if 'recurrence_count' not in data:
             data['recurrence_count'] = 0
+        if 'progress' not in data:
+            data['progress'] = 100 if data.get('status') == 'completed' else 0
         if 'archived_at' not in data:
             data['archived_at'] = None
+        if 'subtasks' not in data:
+            data['subtasks'] = []
+        if 'attachments' not in data:
+            data['attachments'] = []
+        if 'tags' not in data:
+            data['tags'] = []
+        if 'links' not in data:
+            data['links'] = []
         return cls(**data)
     
     @property
@@ -206,14 +248,18 @@ class Todo:
         if not self.is_recurring or not self.recurrence_end_date:
             return False
         end_dt = self.recurrence_end_dt
-        return end_dt and now() > end_dt
-    
+        return bool(end_dt and now() > end_dt)
+
     @property
     def is_overdue(self) -> bool:
         if not self.deadline:
             return False
-        deadline = str_to_datetime(self.deadline)
-        return deadline and now() > deadline and self.status not in [TodoStatus.COMPLETED.value, TodoStatus.CANCELLED.value]
+        deadline = self.deadline_dt
+        return bool(
+            deadline
+            and now() > deadline
+            and self.status not in [TodoStatus.COMPLETED.value, TodoStatus.CANCELLED.value]
+        )
     
     @property
     def priority_emoji(self) -> str:
@@ -250,6 +296,48 @@ class Todo:
 
 
 @dataclass
+class Attachment:
+    """File attachment model"""
+    id: str
+    filename: str  # Original filename
+    file_type: str  # mime type (image/jpeg, application/pdf, video/mp4)
+    file_size: int  # Size in bytes
+    file_path: str  # Path to encrypted file on disk
+    thumbnail_path: Optional[str] = None  # Path to thumbnail for images/videos
+    created_at: str = field(default_factory=now_str)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return asdict(self)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Attachment':
+        return cls(**data)
+    
+    @property
+    def is_image(self) -> bool:
+        return self.file_type.startswith('image/')
+    
+    @property
+    def is_video(self) -> bool:
+        return self.file_type.startswith('video/')
+    
+    @property
+    def is_pdf(self) -> bool:
+        return self.file_type == 'application/pdf'
+    
+    @property
+    def file_size_mb(self) -> float:
+        return round(self.file_size / (1024 * 1024), 2)
+
+
+class NoteStatus(str, Enum):
+    """Status of a note"""
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DRAFT = "draft"
+
+
+@dataclass
 class Note:
     """Encrypted note model"""
     id: str
@@ -257,17 +345,34 @@ class Note:
     title: str
     content: str  # Encrypted content
     tags: List[str] = field(default_factory=list)
+    links: List[str] = field(default_factory=list)  # Clickable URLs
+    status: str = NoteStatus.ACTIVE.value
     is_pinned: bool = False
     color: str = "default"
+    attachments: List[Dict[str, Any]] = field(default_factory=list)  # List of Attachment dicts
     created_at: str = field(default_factory=now_str)
     updated_at: str = field(default_factory=now_str)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Note':
+        if 'attachments' not in data:
+            data['attachments'] = []
+        if 'links' not in data:
+            data['links'] = []
+        if 'status' not in data:
+            data['status'] = NoteStatus.ACTIVE.value
         return cls(**data)
+    
+    @property
+    def has_attachments(self) -> bool:
+        return len(self.attachments) > 0
+    
+    @property
+    def has_links(self) -> bool:
+        return len(self.links) > 0
 
 
 @dataclass
@@ -303,10 +408,10 @@ class Password:
     password_history: List[Dict[str, str]] = field(default_factory=list)  # List of old passwords
     created_at: str = field(default_factory=now_str)
     updated_at: str = field(default_factory=now_str)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'Password':
         # Handle legacy data without new fields
@@ -333,10 +438,10 @@ class ArchivedItem:
     item_type: str  # "reminder" or "todo"
     data: Dict[str, Any]
     archived_at: str = field(default_factory=now_str)
-    
+
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
-    
+
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> 'ArchivedItem':
         return cls(**data)

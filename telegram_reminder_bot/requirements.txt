@@ -20,3 +20,6 @@ aiofiles==23.2.1
 
 # P2P networking
 aiohttp==3.9.1
+
+# Image processing
+Pillow

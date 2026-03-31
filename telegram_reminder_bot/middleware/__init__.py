@@ -1,6 +1,3 @@
 """
-Middleware modules
+Middleware - empty (WebApp only mode)
 """
-from .auth_middleware import AuthMiddleware
-
-__all__ = ["AuthMiddleware"]

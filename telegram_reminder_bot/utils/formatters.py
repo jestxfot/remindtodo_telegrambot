@@ -2,7 +2,6 @@
 Formatting utilities for displaying data
 """
 from typing import TYPE_CHECKING, List
-import pytz
 import sys
 import os
 
@@ -15,61 +14,51 @@ if TYPE_CHECKING:
 
 
 def format_datetime(dt_str: str, timezone: str = DEFAULT_TIMEZONE, include_time: bool = True) -> str:
-    """Format datetime string for display"""
+    """Format datetime string for display (time stored in MSK, no conversion needed)"""
     if not dt_str:
         return "—"
     
     try:
+        # Time is stored/normalized as MSK, parse consistently.
         dt = parse_dt(dt_str)
-        tz = pytz.timezone(timezone)
-        local_dt = dt.astimezone(tz)
         
         if include_time:
-            return local_dt.strftime("%d.%m.%Y %H:%M")
-        return local_dt.strftime("%d.%m.%Y")
+            return dt.strftime("%d.%m.%Y %H:%M")
+        return dt.strftime("%d.%m.%Y")
     except Exception:
         return dt_str[:16].replace('T', ' ')
 
 
-def format_interval(minutes: int) -> str:
-    """Format interval in minutes to human-readable string"""
-    if not minutes:
+def format_interval(days: int) -> str:
+    """Format custom recurrence interval in days to human-readable string."""
+    if not days:
         return "Повтор"
-    
-    if minutes < 60:
-        return f"каждые {minutes} мин"
-    elif minutes < 1440:  # меньше суток
-        hours = minutes // 60
-        if hours == 1:
-            return "каждый час"
-        elif hours in [2, 3, 4]:
-            return f"каждые {hours} часа"
-        else:
-            return f"каждые {hours} часов"
-    elif minutes < 10080:  # меньше недели
-        days = minutes // 1440
-        if days == 1:
-            return "ежедневно"
-        elif days in [2, 3, 4]:
+
+    if days == 1:
+        return "ежедневно"
+    if days == 7:
+        return "еженедельно"
+    if days == 14:
+        return "каждые 2 недели"
+    if days == 21:
+        return "каждые 3 недели"
+    if days == 30:
+        return "ежемесячно"
+
+    if days < 7:
+        if days in [2, 3, 4]:
             return f"каждые {days} дня"
-        else:
-            return f"каждые {days} дней"
-    elif minutes < 43200:  # меньше месяца (30 дней)
-        weeks = minutes // 10080
+        return f"каждые {days} дней"
+
+    weeks = days // 7
+    if days % 7 == 0 and weeks > 0:
         if weeks == 1:
             return "еженедельно"
-        elif weeks in [2, 3, 4]:
+        if weeks in [2, 3, 4]:
             return f"каждые {weeks} недели"
-        else:
-            return f"каждые {weeks} недель"
-    else:
-        months = minutes // 43200
-        if months == 1:
-            return "ежемесячно"
-        elif months in [2, 3, 4]:
-            return f"каждые {months} месяца"
-        else:
-            return f"каждые {months} месяцев"
+        return f"каждые {weeks} недель"
+
+    return f"каждые {days} дн."
 
 
 def format_reminder(reminder: "Reminder", timezone: str = DEFAULT_TIMEZONE) -> str:

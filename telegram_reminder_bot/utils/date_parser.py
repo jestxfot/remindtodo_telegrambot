@@ -6,13 +6,13 @@ from datetime import datetime, timedelta
 from typing import Optional, Tuple
 from dateutil import parser as dateutil_parser
 from dateutil.relativedelta import relativedelta
-import pytz
 import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import DEFAULT_TIMEZONE
 from storage.models import RecurrenceType
+from utils.timezone import MSK, now as msk_now, to_msk
 
 
 # Russian month names
@@ -72,8 +72,9 @@ def parse_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> Optional[date
     - "2024-01-10 14:30"
     """
     text = text.lower().strip()
-    tz = pytz.timezone(timezone)
-    now = datetime.now(tz)
+    # App-wide convention: all user-facing times are MSK (+03:00).
+    tz = MSK
+    now = msk_now()
     
     # Try relative patterns first
     for pattern, delta_func in RELATIVE_PATTERNS.items():
@@ -88,8 +89,8 @@ def parse_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> Optional[date
     for keyword, time_func in SPECIAL_TIMES.items():
         if keyword in text:
             base_time = time_func(now)
-            # Look for time specification like "в 10:00"
-            time_match = re.search(r'в\s*(\d{1,2})[:\.](\d{2})', text)
+            # Look for time specification like "в 10:00" or just "10:00"
+            time_match = re.search(r'(?:в\s+)?(\d{1,2})[:\.](\d{2})', text)
             if time_match:
                 hour = int(time_match.group(1))
                 minute = int(time_match.group(2))
@@ -109,8 +110,8 @@ def parse_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> Optional[date
                 days_ahead += 7
             target_date = now + timedelta(days=days_ahead)
             
-            # Look for time
-            time_match = re.search(r'в\s*(\d{1,2})[:\.](\d{2})', text)
+            # Look for time (with or without "в")
+            time_match = re.search(r'(?:в\s+)?(\d{1,2})[:\.](\d{2})', text)
             if time_match:
                 hour = int(time_match.group(1))
                 minute = int(time_match.group(2))
@@ -130,14 +131,14 @@ def parse_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> Optional[date
             
             # Check if date is in the past, move to next year
             try:
-                target_date = datetime(year, month_num, day, tzinfo=tz)
+                target_date = tz.localize(datetime(year, month_num, day))
                 if target_date < now:
-                    target_date = datetime(year + 1, month_num, day, tzinfo=tz)
+                    target_date = tz.localize(datetime(year + 1, month_num, day))
             except ValueError:
                 continue
             
-            # Look for time
-            time_match = re.search(r'в\s*(\d{1,2})[:\.](\d{2})', text)
+            # Look for time (with or without "в")
+            time_match = re.search(r'(?:в\s+)?(\d{1,2})[:\.](\d{2})', text)
             if time_match:
                 hour = int(time_match.group(1))
                 minute = int(time_match.group(2))
@@ -161,7 +162,7 @@ def parse_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> Optional[date
         minute = int(date_match.group(5)) if date_match.group(5) else 0
         
         try:
-            return datetime(year, month, day, hour, minute, tzinfo=tz)
+            return tz.localize(datetime(year, month, day, hour, minute))
         except ValueError:
             pass
     
@@ -180,7 +181,7 @@ def parse_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> Optional[date
         parsed = dateutil_parser.parse(text, fuzzy=True)
         if parsed.tzinfo is None:
             parsed = tz.localize(parsed)
-        return parsed
+        return to_msk(parsed)
     except (ValueError, TypeError):
         pass
     
@@ -317,11 +318,9 @@ def extract_title_and_datetime(text: str, timezone: str = DEFAULT_TIMEZONE) -> T
 
 def format_relative_time(dt: datetime, timezone: str = DEFAULT_TIMEZONE) -> str:
     """Format datetime as relative time string"""
-    tz = pytz.timezone(timezone)
-    now = datetime.now(tz)
-    
-    if dt.tzinfo is None:
-        dt = tz.localize(dt)
+    # App-wide convention: all user-facing times are MSK (+03:00).
+    now = msk_now()
+    dt = to_msk(dt)
     
     diff = dt - now
     

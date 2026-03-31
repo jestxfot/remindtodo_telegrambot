@@ -3,9 +3,7 @@ Global Moscow timezone utilities.
 
 All datetime operations should use these functions to ensure consistent MSK time.
 """
-from datetime import datetime, timedelta
-from typing import Optional
-
+from datetime import datetime
 import pytz
 
 # Moscow timezone - the only timezone used in this app
@@ -19,33 +17,35 @@ def now() -> datetime:
 
 def now_str() -> str:
     """Get current time in Moscow as ISO string (for storage)"""
-    return format_dt(now())
+    return datetime.now(MSK).strftime('%Y-%m-%dT%H:%M:%S')
 
 
-def to_msk(dt: Optional[datetime]) -> Optional[datetime]:
+def to_msk(dt: datetime) -> datetime:
     """Convert any datetime to Moscow timezone"""
     if dt is None:
         return None
     if dt.tzinfo is not None:
         return dt.astimezone(MSK)
-    # Assume naive datetime is already in MSK
-    return MSK.localize(dt)
+    else:
+        # Assume naive datetime is already in MSK
+        return MSK.localize(dt)
 
 
-def parse_dt(dt_str: Optional[str]) -> Optional[datetime]:
+def parse_dt(dt_str: str) -> datetime:
     """Parse ISO datetime string and localize to MSK"""
     if not dt_str:
         return None
-    dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+    dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
     return to_msk(dt)
 
 
-def format_dt(dt: Optional[datetime]) -> Optional[str]:
+def format_dt(dt: datetime) -> str:
     """Format datetime to ISO string for storage (without tz info)"""
     if dt is None:
         return None
-    dt = to_msk(dt)
-    return dt.strftime("%Y-%m-%dT%H:%M:%S")
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(MSK)
+    return dt.strftime('%Y-%m-%dT%H:%M:%S')
 
 
 def normalize_dt_str(dt_str: str | None) -> str | None:
@@ -61,9 +61,3 @@ def normalize_dt_str(dt_str: str | None) -> str | None:
         return format_dt(parse_dt(dt_str))
     except Exception:
         return dt_str
-
-
-def tomorrow_at(hour: int = 9, minute: int = 0) -> datetime:
-    """Get tomorrow at a specific MSK time."""
-    base = now() + timedelta(days=1)
-    return base.replace(hour=hour, minute=minute, second=0, microsecond=0)
