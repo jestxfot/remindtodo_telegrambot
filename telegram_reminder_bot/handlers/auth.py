@@ -261,6 +261,91 @@ def get_crypto_for_user(user_id: int) -> CryptoManager | None:
     return get_session(user_id)
 
 
+def logout_user(user_id: int):
+    """Logout user (WebApp compatibility wrapper)"""
+    logout(user_id)
+
+
+async def authenticate_user(user_id: int, password: str, duration_key: str = None) -> bool:
+    """Authenticate user with password (for WebApp API)"""
+    is_valid, salt_b64 = verify_password(user_id, password)
+
+    if not is_valid:
+        return False
+
+    duration = duration_key if duration_key in SESSION_DURATIONS else DEFAULT_SESSION_DURATION
+    create_session(user_id, password, salt_b64, duration)
+    save_persistent_session(user_id, password, salt_b64, duration)
+    return True
+
+
+async def create_user_password(user_id: int, password: str, duration_key: str = None) -> bool:
+    """Create password for new user (for WebApp API)"""
+    if user_has_password(user_id):
+        return False
+
+    if len(password) < 4:
+        return False
+
+    salt_b64 = save_password_hash(user_id, password)
+    duration = duration_key if duration_key in SESSION_DURATIONS else DEFAULT_SESSION_DURATION
+    create_session(user_id, password, salt_b64, duration)
+    save_persistent_session(user_id, password, salt_b64, duration)
+    return True
+
+
+def get_session_info_dict(user_id: int) -> dict:
+    """Get session info as dictionary (for WebApp API)"""
+    session = _active_sessions.get(user_id)
+    if not session:
+        return {"active": False}
+
+    duration_labels = {
+        "30min": "30 минут",
+        "2hours": "2 часа",
+        "1day": "1 день",
+        "1week": "1 неделя",
+        "1month": "1 месяц",
+    }
+
+    expires = session["expires_at"]
+    remaining = expires - datetime.utcnow()
+    remaining_minutes = max(0, int(remaining.total_seconds() / 60))
+
+    return {
+        "active": True,
+        "duration_key": session["duration_key"],
+        "duration_label": duration_labels.get(session["duration_key"], "?"),
+        "expires_at": expires.isoformat(),
+        "remaining_minutes": remaining_minutes,
+        "available_durations": [
+            {"key": "30min", "label": "30 минут"},
+            {"key": "2hours", "label": "2 часа"},
+            {"key": "1day", "label": "1 день"},
+            {"key": "1week", "label": "1 неделя"},
+            {"key": "1month", "label": "1 месяц"},
+        ],
+    }
+
+
+def update_session_duration(user_id: int, new_duration_key: str) -> bool:
+    """Update session duration (for WebApp API)"""
+    if new_duration_key not in SESSION_DURATIONS:
+        return False
+
+    session = _active_sessions.get(user_id)
+    if not session:
+        return False
+
+    success, password, salt = load_persistent_session(user_id)
+    if not success or not password or not salt:
+        return False
+
+    create_session(user_id, password, salt, new_duration_key)
+    save_persistent_session(user_id, password, salt, new_duration_key)
+    return True
+
+
 def get_session_duration_keyboard(for_login: bool = True) -> InlineKeyboardBuilder:
     """Get keyboard for selecting session duration"""
     builder = InlineKeyboardBuilder()
