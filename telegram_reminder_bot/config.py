@@ -1,20 +1,59 @@
 """
-Configuration settings for the Telegram Reminder Bot
+Configuration settings for the Telegram Reminder Bot.
+
+The project is deployed in a few different ways:
+- bot via systemd
+- webapp via systemd from ``webapp/``
+- ad-hoc manual runs from the repository root
+
+Because of that, we resolve the environment file and data directory relative to
+this file instead of relying on the current working directory.
 """
 import os
 from pathlib import Path
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+except Exception:  # pragma: no cover - optional dependency fallback
+    load_dotenv = None
 
 # Base directory
 BASE_DIR = Path(__file__).parent
+ENV_FILE = BASE_DIR / ".env"
+
+if load_dotenv and ENV_FILE.exists():
+    load_dotenv(ENV_FILE)
+elif load_dotenv:
+    load_dotenv()
+
+
+def _normalize_path(path_value: str, default_path: Path) -> str:
+    """
+    Normalize project paths so they stay stable after restarts.
+
+    Supported cases:
+    - absolute paths: returned as-is
+    - ``./data`` or ``data``: resolved relative to the repo root
+    - accidentally missing leading slash, e.g. ``root/telegram_reminder_bot/data``:
+      treated as ``/root/telegram_reminder_bot/data``
+    """
+    if not path_value:
+        return str(default_path)
+
+    expanded = Path(path_value).expanduser()
+    if expanded.is_absolute():
+        return str(expanded)
+
+    if path_value.startswith(("root/", "home/")):
+        return f"/{path_value.lstrip('/')}"
+
+    return str((BASE_DIR / expanded).resolve())
 
 # Bot settings
 BOT_TOKEN = os.getenv("BOT_TOKEN", "YOUR_BOT_TOKEN_HERE")
 
 # Data storage
-DATA_DIR = os.getenv("DATA_DIR", str(BASE_DIR / "data"))
+DATA_DIR = _normalize_path(os.getenv("DATA_DIR", ""), BASE_DIR / "data")
 
 # Encryption settings
 ENCRYPTION_ALGORITHM = "AES-256-GCM"

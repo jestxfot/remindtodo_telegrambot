@@ -291,23 +291,23 @@ sudo ./venv/bin/pip install -r requirements.txt
 
 ```bash
 # Создаём файл конфигурации
-sudo nano root/telegram_reminder_bot/.env
+sudo nano /root/telegram_reminder_bot/.env
 ```
 
 Содержимое `.env`:
 ```env
 BOT_TOKEN=ваш_токен_от_BotFather
-DATA_DIR=root/telegram_reminder_bot/data
+DATA_DIR=/root/telegram_reminder_bot/data
 TIMEZONE=Europe/Moscow
 ```
 
 ```bash
 # Создаём директорию для данных
-sudo mkdir -p root/telegram_reminder_bot/data
+sudo mkdir -p /root/telegram_reminder_bot/data
 
 # Устанавливаем права доступа
-sudo chown -R telegrambot:telegrambot root/telegram_reminder_bot
-sudo chmod 600 root/telegram_reminder_bot/.env
+sudo chown -R telegrambot:telegrambot /root/telegram_reminder_bot
+sudo chmod 600 /root/telegram_reminder_bot/.env
 ```
 
 ### Шаг 4: Создание systemd службы
@@ -326,7 +326,7 @@ After=network.target
 Type=simple
 WorkingDirectory=/root/telegram_reminder_bot
 EnvironmentFile=/root/telegram_reminder_bot/.env
-ExecStart=/root/telegram_reminder_bot/venv/bin/python3 /root/telegram_reminder_bot/bot.py
+ExecStart=/root/telegram_reminder_bot/venv/bin/python /root/telegram_reminder_bot/bot.py
 Restart=always
 RestartSec=10
 

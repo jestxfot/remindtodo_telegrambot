@@ -1,7 +1,9 @@
 #!/bin/bash
 # Скрипт для перезапуска бота и туннеля с автоматическим обновлением URL
 
-BOT_DIR="/root/telegram_reminder_bot"
+set -euo pipefail
+
+BOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$BOT_DIR/.env"
 
 echo "🔄 Перезапуск системы..."

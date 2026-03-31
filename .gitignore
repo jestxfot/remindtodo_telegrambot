@@ -1,0 +1,18 @@
+# Secrets and local env
+.env
+.env.local
+
+# Editor and local assistant state
+.vscode/
+.claude/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local dependencies and build outputs
+node_modules/
+
+# Python caches
+__pycache__/
+*.py[cod]

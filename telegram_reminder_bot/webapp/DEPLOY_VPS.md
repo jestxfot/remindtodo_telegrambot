@@ -42,7 +42,7 @@ npm run build
 **Терминал 1 — HTTP сервер:**
 ```bash
 cd /root/telegram_reminder_bot/webapp
-python3 server.py
+../venv/bin/python server.py
 ```
 
 **Терминал 2 — Cloudflare Tunnel:**
@@ -74,7 +74,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/root/telegram_reminder_bot/webapp
-ExecStart=/usr/bin/python3 /root/telegram_reminder_bot/webapp/server.py
+EnvironmentFile=/root/telegram_reminder_bot/.env
+ExecStart=/root/telegram_reminder_bot/venv/bin/python /root/telegram_reminder_bot/webapp/server.py
 Restart=always
 RestartSec=10
 Environment=WEBAPP_PORT=3000

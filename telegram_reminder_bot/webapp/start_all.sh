@@ -1,8 +1,17 @@
 #!/bin/bash
 # Запускает веб-сервер и туннель вместе
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON_BIN="$BOT_DIR/venv/bin/python"
 cd "$SCRIPT_DIR"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+    echo "❌ Не найден Python из venv: $PYTHON_BIN"
+    exit 1
+fi
 
 # Проверяем что билд существует
 if [ ! -d "dist" ]; then
@@ -12,7 +21,7 @@ if [ ! -d "dist" ]; then
 fi
 
 echo "🌐 Запуск веб-сервера на порту 3000..."
-python3 server.py &
+"$PYTHON_BIN" server.py &
 SERVER_PID=$!
 
 # Ждём запуска сервера
@@ -73,4 +82,3 @@ done
 
 # Ждём завершения
 wait
-

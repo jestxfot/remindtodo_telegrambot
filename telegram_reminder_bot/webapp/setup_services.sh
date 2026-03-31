@@ -3,7 +3,16 @@
 
 set -e
 
-WEBAPP_DIR="/root/telegram_reminder_bot/webapp"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WEBAPP_DIR="$SCRIPT_DIR"
+BOT_DIR="$(cd "$WEBAPP_DIR/.." && pwd)"
+ENV_FILE="$BOT_DIR/.env"
+PYTHON_BIN="$BOT_DIR/venv/bin/python"
+
+if [ ! -x "$PYTHON_BIN" ]; then
+    echo "ERROR: Python virtualenv not found at $PYTHON_BIN"
+    exit 1
+fi
 
 echo "📦 Создание службы веб-сервера..."
 
@@ -15,7 +24,8 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=$WEBAPP_DIR
-ExecStart=/usr/bin/python3 $WEBAPP_DIR/server.py
+EnvironmentFile=-$ENV_FILE
+ExecStart=$PYTHON_BIN $WEBAPP_DIR/server.py
 Restart=always
 RestartSec=5
 Environment=WEBAPP_PORT=3000
@@ -26,7 +36,7 @@ EOF
 
 echo "🚇 Создание службы туннеля..."
 
-sudo tee /etc/systemd/system/telegram-tunnel.service > /dev/null << 'TUNNELEOF'
+sudo tee /etc/systemd/system/telegram-tunnel.service > /dev/null << TUNNELEOF
 [Unit]
 Description=Cloudflare Tunnel for Telegram Web App
 After=network.target telegram-webapp.service
@@ -34,8 +44,10 @@ Requires=telegram-webapp.service
 
 [Service]
 Type=simple
-WorkingDirectory=/root/telegram_reminder_bot/webapp
-ExecStart=/bin/bash -c '/usr/local/bin/cloudflared tunnel --url http://localhost:3000 2>&1 | while read line; do echo "$line"; if [[ "$line" =~ (https://[a-zA-Z0-9-]+\.trycloudflare\.com) ]]; then URL="${BASH_REMATCH[1]}"; echo "$URL" > /root/telegram_reminder_bot/webapp/tunnel_url.txt; ENV_FILE="/root/telegram_reminder_bot/.env"; if [ -f "$ENV_FILE" ]; then grep -v "^WEBAPP_URL=" "$ENV_FILE" > "$ENV_FILE.tmp"; echo "WEBAPP_URL=$URL" >> "$ENV_FILE.tmp"; mv "$ENV_FILE.tmp" "$ENV_FILE"; systemctl restart telegram-reminder-bot || true; fi; fi; done'
+WorkingDirectory=$WEBAPP_DIR
+Environment=WEBAPP_DIR=$WEBAPP_DIR
+Environment=BOT_ENV_FILE=$ENV_FILE
+ExecStart=/bin/bash -c '/usr/local/bin/cloudflared tunnel --url http://localhost:3000 2>&1 | while read line; do echo "\$line"; if [[ "\$line" =~ (https://[a-zA-Z0-9-]+\.trycloudflare\.com) ]]; then URL="\${BASH_REMATCH[1]}"; echo "\$URL" > "\$WEBAPP_DIR/tunnel_url.txt"; ENV_FILE="\$BOT_ENV_FILE"; if [ -f "\$ENV_FILE" ]; then grep -v "^WEBAPP_URL=" "\$ENV_FILE" > "\$ENV_FILE.tmp"; echo "WEBAPP_URL=\$URL" >> "\$ENV_FILE.tmp"; mv "\$ENV_FILE.tmp" "\$ENV_FILE"; systemctl restart telegram-reminder-bot || true; fi; fi; done'
 Restart=always
 RestartSec=10
 
@@ -63,4 +75,3 @@ echo ""
 echo "Логи туннеля (там будет URL):"
 echo "  sudo journalctl -u telegram-tunnel -f"
 echo "═══════════════════════════════════════════"
-
