@@ -1,0 +1,299 @@
+/* ============ STATUS ============ */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.status-selector {
+  display: flex;
+  gap: 8px;
+}
+
+.status-option {
+  flex: 1;
+  padding: 10px 8px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.status-option:hover {
+  border-color: var(--status-color);
+}
+
+.status-option.selected {
+  border-color: var(--status-color);
+  background: color-mix(in srgb, var(--status-color) 15%, transparent);
+}
+
+/* ============ TAGS ============ */
+
+.tags-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.tag-chip {
+  padding: 3px 8px;
+  background: rgba(99, 102, 241, 0.15);
+  color: var(--tg-button);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.tag-more {
+  font-size: 11px;
+  color: var(--tg-hint);
+  padding: 3px 6px;
+}
+
+.tags-input-wrapper {
+  position: relative;
+}
+
+.tags-input {
+  width: 100%;
+  padding: 12px 14px;
+  padding-right: 100px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 14px;
+  outline: none;
+}
+
+.tags-input:focus {
+  border-color: var(--tg-button);
+}
+
+.tags-hint {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 11px;
+  color: var(--tg-hint);
+}
+
+/* ============ LINKS ============ */
+
+.links-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.link-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+  border-radius: 12px;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link-chip:hover {
+  background: rgba(34, 197, 94, 0.25);
+}
+
+.link-chip.telegram-link {
+  background: rgba(36, 161, 222, 0.15);
+  color: #24a1de;
+}
+
+.link-chip.telegram-link:hover {
+  background: rgba(36, 161, 222, 0.25);
+}
+
+.link-more {
+  font-size: 11px;
+  color: var(--tg-hint);
+  padding: 4px 6px;
+}
+
+.links-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.link-add-row {
+  display: flex;
+  gap: 8px;
+}
+
+.link-add-row input {
+  flex: 1;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  font-size: 14px;
+  outline: none;
+}
+
+.link-add-row input:focus {
+  border-color: var(--tg-button);
+}
+
+.link-add-btn {
+  width: 48px;
+  border: none;
+  border-radius: 12px;
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  font-size: 22px;
+  cursor: pointer;
+  transition: transform 0.2s;
+}
+
+.link-add-btn:active {
+  transform: scale(0.95);
+}
+
+.links-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.link-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--tg-secondary-bg);
+  border-radius: 10px;
+}
+
+.link-item a {
+  color: #22c55e;
+  text-decoration: none;
+  font-size: 13px;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.link-item.telegram a {
+  color: #24a1de;
+}
+
+.link-item button {
+  width: 26px;
+  height: 26px;
+  border: none;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  border-radius: 50%;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ============ METADATA ============ */
+
+.metadata-display {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: var(--tg-secondary-bg);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--tg-hint);
+}
+
+/* ============ ATTACHMENTS ============ */
+
+.attachments-badges {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.attachment-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: rgba(99, 102, 241, 0.15);
+  border-radius: 8px;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.attachment-badge:hover {
+  background: rgba(99, 102, 241, 0.25);
+}
+
+.attachment-badge.more {
+  width: auto;
+  padding: 0 8px;
+  font-size: 11px;
+  color: var(--tg-hint);
+}
+
+/* ============ ITEM INDICATORS ============ */
+
+.item-indicators {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.item-indicators span {
+  opacity: 0.8;
+}
+
+.draft-indicator {
+  padding: 2px 6px;
+  background: rgba(234, 179, 8, 0.2);
+  color: #eab308;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+/* ============ COMMON FIELDS SECTION ============ */
+
+.common-fields-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 8px;
+}
+
+.common-fields-section .form-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+

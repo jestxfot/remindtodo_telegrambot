@@ -1,0 +1,68 @@
+.navigation {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  justify-content: space-between;
+  background: var(--tg-secondary-bg);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 6px 2px;
+  padding-bottom: max(6px, env(safe-area-inset-bottom));
+  z-index: 100;
+}
+
+.nav-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  color: var(--tg-hint);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border-radius: 10px;
+  min-width: 44px;
+  flex: 1;
+}
+
+.nav-tab:active {
+  transform: scale(0.95);
+}
+
+.nav-tab.active {
+  color: var(--tg-button);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.nav-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.nav-label {
+  font-size: 9px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+@media (max-width: 380px) {
+  .nav-label {
+    display: none;
+  }
+  
+  .nav-tab {
+    min-width: 36px;
+    padding: 6px 4px;
+  }
+  
+  .nav-icon {
+    font-size: 20px;
+  }
+}
+

@@ -1,156 +1,159 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import WebApp from '@twa-dev/sdk'
-import Calendar from './components/Calendar'
 import './App.css'
 
+// Pages
+import TasksPage from './pages/TasksPage'
+import RemindersPage from './pages/RemindersPage'
+import NotesPage from './pages/NotesPage'
+import PasswordsPage from './pages/PasswordsPage'
+import CalendarPage from './pages/CalendarPage'
+import ArchivePage from './pages/ArchivePage'
+import SettingsPage from './pages/SettingsPage'
+
+// Components
+import Navigation from './components/Navigation'
+import UnlockScreen from './components/UnlockScreen'
+
 function App() {
-  const [events, setEvents] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState(null)
+  const [currentPage, setCurrentPage] = useState('tasks')
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
   const [user, setUser] = useState(null)
+  const [error, setError] = useState(null)
 
   useEffect(() => {
     // Initialize Telegram Web App
     WebApp.ready()
     WebApp.expand()
     
-    // Set theme
-    document.documentElement.style.setProperty('--tg-theme-bg-color', WebApp.themeParams.bg_color || '#1a1a2e')
-    document.documentElement.style.setProperty('--tg-theme-text-color', WebApp.themeParams.text_color || '#ffffff')
-    document.documentElement.style.setProperty('--tg-theme-hint-color', WebApp.themeParams.hint_color || '#8b8b8b')
-    document.documentElement.style.setProperty('--tg-theme-button-color', WebApp.themeParams.button_color || '#6366f1')
-    document.documentElement.style.setProperty('--tg-theme-secondary-bg-color', WebApp.themeParams.secondary_bg_color || '#16213e')
+    // Set theme colors
+    const root = document.documentElement
+    root.style.setProperty('--tg-bg', WebApp.themeParams.bg_color || '#1a1a2e')
+    root.style.setProperty('--tg-text', WebApp.themeParams.text_color || '#ffffff')
+    root.style.setProperty('--tg-hint', WebApp.themeParams.hint_color || '#8b8b8b')
+    root.style.setProperty('--tg-button', WebApp.themeParams.button_color || '#6366f1')
+    root.style.setProperty('--tg-button-text', WebApp.themeParams.button_text_color || '#ffffff')
+    root.style.setProperty('--tg-secondary-bg', WebApp.themeParams.secondary_bg_color || '#16213e')
+    root.style.setProperty('--tg-section-bg', WebApp.themeParams.section_bg_color || '#1f1f3a')
+    root.style.setProperty('--tg-accent', WebApp.themeParams.accent_text_color || '#6366f1')
+    root.style.setProperty('--tg-destructive', WebApp.themeParams.destructive_text_color || '#ff4444')
     
     // Get user info
     if (WebApp.initDataUnsafe?.user) {
       setUser(WebApp.initDataUnsafe.user)
     }
 
-    // Load events
-    loadEvents()
+    // Check auth status
+    checkAuth()
   }, [])
 
-  const loadEvents = async () => {
+  const checkAuth = async () => {
     try {
-      setLoading(true)
-      setError(null)
-      
-      const initData = WebApp.initData
-      
-      // Try to fetch from API (same origin)
-      try {
-        const response = await fetch('/api/events', {
-          headers: {
-            'X-Telegram-Init-Data': initData || ''
-          }
-        })
-        
-        const data = await response.json()
-        
-        if (response.ok && data.events && data.events.length > 0) {
-          setEvents(data.events)
-          return
+      setIsLoading(true)
+      const response = await fetch('/api/auth/status', {
+        headers: {
+          'X-Telegram-Init-Data': WebApp.initData || ''
         }
-        
-        // If storage is locked, show message
-        if (response.status === 403 && data.message) {
-          setError(data.message)
-          setEvents([])
-          return
-        }
-      } catch (fetchErr) {
-        console.error('API fetch error:', fetchErr)
-      }
+      })
       
-      // If no events from API and not in Telegram, use mock data for demo
-      if (!initData) {
-        console.log('No Telegram init data, using mock events for demo')
-        setEvents(getMockEvents())
-      } else {
-        // In Telegram but no events - show empty
-        setEvents([])
-      }
+      const data = await response.json()
+      setIsAuthenticated(data.authenticated)
       
+      if (!data.authenticated && data.has_password) {
+        // Need to unlock
+        setIsAuthenticated(false)
+      } else if (!data.has_password) {
+        // New user, need to create password
+        setIsAuthenticated(false)
+      }
     } catch (err) {
-      console.error('Error loading events:', err)
-      setError(err.message)
-      setEvents([])
+      console.error('Auth check failed:', err)
+      setError('Ошибка подключения к серверу')
     } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
-  const getMockEvents = () => {
-    const today = new Date()
-    const events = []
-    
-    // Generate some sample events
-    for (let i = -5; i < 15; i++) {
-      const date = new Date(today)
-      date.setDate(date.getDate() + i)
-      
-      if (Math.random() > 0.5) {
-        events.push({
-          id: `reminder-${i}`,
-          type: 'reminder',
-          title: ['Встреча', 'Звонок', 'Совещание', 'Врач', 'Оплата'][Math.floor(Math.random() * 5)],
-          date: date.toISOString(),
-          time: `${9 + Math.floor(Math.random() * 10)}:00`,
-          isRecurring: Math.random() > 0.7
-        })
-      }
-      
-      if (Math.random() > 0.6) {
-        events.push({
-          id: `todo-${i}`,
-          type: 'todo',
-          title: ['Купить продукты', 'Отправить отчёт', 'Проект', 'Задача'][Math.floor(Math.random() * 4)],
-          date: date.toISOString(),
-          priority: ['low', 'medium', 'high', 'urgent'][Math.floor(Math.random() * 4)],
-          completed: Math.random() > 0.8
-        })
-      }
+  const handleUnlock = useCallback((success) => {
+    if (success) {
+      setIsAuthenticated(true)
+      WebApp.HapticFeedback.notificationOccurred('success')
     }
+  }, [])
+
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch('/api/auth/lock', {
+        method: 'POST',
+        headers: {
+          'X-Telegram-Init-Data': WebApp.initData || ''
+        }
+      })
+      setIsAuthenticated(false)
+      WebApp.HapticFeedback.notificationOccurred('warning')
+    } catch (err) {
+      console.error('Logout failed:', err)
+    }
+  }, [])
+
+  const renderPage = () => {
+    const pageProps = { user, onLogout: handleLogout }
     
-    return events
+    switch (currentPage) {
+      case 'tasks':
+        return <TasksPage {...pageProps} />
+      case 'reminders':
+        return <RemindersPage {...pageProps} />
+      case 'notes':
+        return <NotesPage {...pageProps} />
+      case 'passwords':
+        return <PasswordsPage {...pageProps} />
+      case 'calendar':
+        return <CalendarPage {...pageProps} />
+      case 'archive':
+        return <ArchivePage {...pageProps} />
+      case 'settings':
+        return <SettingsPage {...pageProps} />
+      default:
+        return <TasksPage {...pageProps} />
+    }
   }
 
-  const handleEventClick = (event) => {
-    // Show event details
-    WebApp.showPopup({
-      title: event.type === 'reminder' ? '🔔 Напоминание' : '📋 Задача',
-      message: `${event.title}\n${event.time || ''}\n${event.isRecurring ? '🔄 Повторяющееся' : ''}`,
-      buttons: [
-        { id: 'view', type: 'default', text: 'Открыть в боте' },
-        { id: 'close', type: 'cancel', text: 'Закрыть' }
-      ]
-    }, (buttonId) => {
-      if (buttonId === 'view') {
-        // Send data back to bot
-        WebApp.sendData(JSON.stringify({ action: 'view', event }))
-      }
-    })
-  }
-
-  if (loading) {
+  if (isLoading) {
     return (
-      <div className="loading-container">
+      <div className="loading-screen">
         <div className="loading-spinner"></div>
-        <p>Загрузка календаря...</p>
+        <p>Загрузка...</p>
       </div>
     )
   }
 
+  if (error) {
+    return (
+      <div className="error-screen">
+        <div className="error-icon">⚠️</div>
+        <p>{error}</p>
+        <button onClick={() => window.location.reload()}>Повторить</button>
+      </div>
+    )
+  }
+
+  if (!isAuthenticated) {
+    return <UnlockScreen onUnlock={handleUnlock} user={user} />
+  }
+
   return (
     <div className="app">
-      <Calendar 
-        events={events} 
-        onEventClick={handleEventClick}
-        user={user}
+      <main className="main-content">
+        {renderPage()}
+      </main>
+      <Navigation 
+        currentPage={currentPage} 
+        onPageChange={setCurrentPage} 
       />
     </div>
   )
 }
 
 export default App
-

@@ -1,0 +1,259 @@
+/* File Viewer Overlay */
+.file-viewer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 300;
+  animation: fadeIn 0.2s;
+}
+
+.file-viewer {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--tg-bg);
+}
+
+.file-viewer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--tg-secondary-bg);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--tg-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-size {
+  font-size: 12px;
+  color: var(--tg-hint);
+}
+
+.file-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.file-actions button {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--tg-text);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-viewer-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 16px;
+}
+
+.file-viewer-content img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.file-viewer-content video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 8px;
+}
+
+.file-viewer-content iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  border-radius: 8px;
+  background: white;
+}
+
+.file-loading,
+.file-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--tg-hint);
+}
+
+.file-error span {
+  font-size: 48px;
+}
+
+.file-unsupported {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+  color: var(--tg-hint);
+}
+
+.file-unsupported .file-icon {
+  font-size: 64px;
+}
+
+.file-unsupported button {
+  padding: 12px 24px;
+  border-radius: 12px;
+  border: none;
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Attachment List */
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.attachment-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--tg-secondary-bg);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+  max-width: 200px;
+}
+
+.attachment-item:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.attachment-preview {
+  flex-shrink: 0;
+}
+
+.attachment-icon {
+  font-size: 20px;
+}
+
+.attachment-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.attachment-name {
+  font-size: 12px;
+  color: var(--tg-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-size {
+  font-size: 10px;
+  color: var(--tg-hint);
+}
+
+.attachment-delete {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* Attachment Upload */
+.attachment-upload {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--tg-secondary-bg);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 2px dashed rgba(255, 255, 255, 0.2);
+}
+
+.attachment-upload:hover {
+  border-color: var(--tg-button);
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.attachment-upload.uploading {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.attachment-upload input {
+  display: none;
+}
+
+.upload-icon,
+.upload-loading {
+  font-size: 18px;
+}
+
+.upload-text {
+  font-size: 13px;
+  color: var(--tg-hint);
+}
+
+/* Compact attachment display for cards */
+.attachment-badges {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.attachment-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: rgba(99, 102, 241, 0.2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--tg-button);
+}
+

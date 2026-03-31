@@ -1,0 +1,147 @@
+.unlock-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--tg-bg);
+}
+
+.unlock-container {
+  width: 100%;
+  max-width: 320px;
+  text-align: center;
+}
+
+.unlock-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.unlock-title {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--tg-text);
+  margin: 0 0 8px;
+}
+
+.unlock-greeting {
+  color: var(--tg-button);
+  font-size: 16px;
+  margin: 0 0 12px;
+}
+
+.unlock-description {
+  color: var(--tg-hint);
+  font-size: 14px;
+  line-height: 1.5;
+  margin: 0 0 24px;
+}
+
+.unlock-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.unlock-input {
+  width: 100%;
+  padding: 14px 16px;
+  font-size: 16px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: var(--tg-secondary-bg);
+  color: var(--tg-text);
+  outline: none;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.unlock-input:focus {
+  border-color: var(--tg-button);
+}
+
+.unlock-input::placeholder {
+  color: var(--tg-hint);
+}
+
+.unlock-error {
+  color: var(--tg-destructive);
+  font-size: 14px;
+  margin: 0;
+}
+
+.unlock-button {
+  width: 100%;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  border: none;
+  border-radius: 12px;
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.unlock-button:active {
+  transform: scale(0.98);
+}
+
+.unlock-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.unlock-hint {
+  margin-top: 24px;
+  font-size: 12px;
+  color: var(--tg-hint);
+}
+
+/* Remember me section */
+.remember-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--tg-secondary-bg);
+  border-radius: 12px;
+}
+
+.remember-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  color: var(--tg-text);
+  font-size: 14px;
+}
+
+.remember-checkbox input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--tg-button);
+}
+
+.duration-select {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  outline: none;
+}
+
+.duration-select:focus {
+  border-color: var(--tg-button);
+}
+
