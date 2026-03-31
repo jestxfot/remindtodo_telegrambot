@@ -1,7 +1,7 @@
 """
 P2P Sync Server for encrypted data synchronization
 
-This server allows multiple devices to sync encrypted JSON data.
+This server allows multiple devices to sync encrypted user data envelopes.
 All data remains encrypted - server never sees plaintext.
 """
 import asyncio
@@ -16,7 +16,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import P2P_PORT, P2P_SECRET
-from storage.json_storage import storage
+from storage.sqlite_storage import storage
 from utils.timezone import now, now_str, parse_dt
 
 logger = logging.getLogger(__name__)

@@ -134,7 +134,7 @@ sys.path.insert(0, str(bot_dir))
 
 import config  # noqa: F401
 import handlers.auth  # noqa: F401
-import storage.json_storage  # noqa: F401
+import storage.sqlite_storage  # noqa: F401
 import webapp.server as server
 
 print("BOT_AVAILABLE =", server.BOT_AVAILABLE)

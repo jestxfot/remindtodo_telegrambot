@@ -27,7 +27,7 @@ from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest
 
 from config import BOT_TOKEN, DATA_DIR, PERSISTENT_REMINDER_INTERVAL
 from storage.models import now
-from storage.json_storage import storage
+from storage.sqlite_storage import storage
 from handlers import commands_router, notifications_router
 from handlers.auth import is_authenticated, get_crypto_for_user
 from utils.keyboards import get_reminder_notification_keyboard

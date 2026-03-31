@@ -10,7 +10,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from storage.json_storage import storage
+from storage.sqlite_storage import storage
 from storage.models import RecurrenceType, ReminderStatus
 from handlers.auth import get_crypto_for_user
 

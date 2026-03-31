@@ -18,7 +18,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config import BOT_TOKEN, WEBAPP_URL
-from storage.json_storage import storage
+from storage.sqlite_storage import storage
 from handlers.auth import get_crypto_for_user, is_authenticated
 from utils.timezone import format_dt, now, parse_dt
 

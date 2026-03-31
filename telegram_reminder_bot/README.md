@@ -50,7 +50,7 @@
 ### Хранение данных
 ```
 data/
-  └── user_123456789.encrypted.json  # Зашифрованный файл пользователя
+  └── storage.sqlite3               # Зашифрованное SQLite-хранилище
 ```
 
 Структура зашифрованного файла:
@@ -160,7 +160,7 @@ telegram_reminder_bot/
 ├── storage/                # Хранилище данных
 │   ├── __init__.py
 │   ├── models.py           # Модели данных
-│   └── json_storage.py     # Зашифрованное JSON хранилище
+│   └── sqlite_storage.py   # Зашифрованное SQLite хранилище
 ├── p2p/                    # P2P синхронизация
 │   ├── __init__.py
 │   ├── sync_server.py      # Сервер синхронизации
@@ -177,7 +177,7 @@ telegram_reminder_bot/
 │   ├── date_parser.py      # Парсер дат (RU)
 │   └── formatters.py       # Форматирование
 └── data/                   # Данные (зашифрованные JSON)
-    └── user_*.encrypted.json
+    └── storage.sqlite3
 ```
 
 ## 🔐 Генератор паролей

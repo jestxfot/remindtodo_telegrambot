@@ -1,11 +1,12 @@
 """
-Encrypted JSON Storage System
+Encrypted SQLite storage.
 """
-from .json_storage import EncryptedJSONStorage, UserStorage
+from .sqlite_storage import EncryptedSQLiteStorage
+from .user_storage import UserStorage
 from .models import User, Reminder, Todo, Note, Password, RecurrenceType, ReminderStatus, TodoStatus, TodoPriority
 
 __all__ = [
-    "EncryptedJSONStorage",
+    "EncryptedSQLiteStorage",
     "UserStorage", 
     "User",
     "Reminder",

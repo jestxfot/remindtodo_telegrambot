@@ -14,7 +14,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import P2P_SECRET
-from storage.json_storage import storage
+from storage.sqlite_storage import storage
 from utils.timezone import now_str
 
 logger = logging.getLogger(__name__)

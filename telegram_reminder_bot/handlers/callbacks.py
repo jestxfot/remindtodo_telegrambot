@@ -10,7 +10,7 @@ import sys
 import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from storage.json_storage import storage
+from storage.sqlite_storage import storage
 from handlers.auth import get_crypto_for_user
 from utils.keyboards import get_reminder_keyboard, get_snooze_keyboard, get_settings_keyboard
 from utils.timezone import format_dt, now, now_str, tomorrow_at
@@ -332,15 +332,16 @@ async def cb_settings_export(callback: CallbackQuery):
     
     await callback.message.edit_text(
         f"🔐 <b>Экспорт данных</b>\n\n"
-        f"Ваши данные хранятся в зашифрованном JSON файле:\n"
-        f"<code>data/user_{callback.from_user.id}.encrypted.json</code>\n\n"
+        f"Ваши данные хранятся в зашифрованной SQLite базе:\n"
+        f"<code>data/storage.sqlite3</code>\n\n"
+        f"Для переноса и резервной копии используется зашифрованный JSON-экспорт.\n\n"
         f"📊 Содержимое:\n"
         f"• Задачи: {stats['todos']['total']}\n"
         f"• Напоминания: {stats['reminders']['total']}\n"
         f"• Заметки: {stats['notes']}\n"
         f"• Пароли: {stats['passwords']}\n\n"
         f"🔒 Шифрование: AES-256-GCM\n"
-        f"🔑 Ключ привязан к вашему Telegram ID",
+        f"🔑 Доступ защищён вашим мастер-паролем",
         parse_mode="HTML"
     )
 
@@ -462,10 +463,7 @@ async def cb_backup_hour_set(callback: CallbackQuery):
 @router.callback_query(F.data == "backup_now")
 async def cb_backup_now(callback: CallbackQuery):
     """Send backup right now"""
-    import aiofiles
-    from pathlib import Path
     from aiogram.types import BufferedInputFile
-    from config import DATA_DIR
     
     user_storage = await get_user_storage(callback.from_user.id)
     if not user_storage:
@@ -477,15 +475,12 @@ async def cb_backup_now(callback: CallbackQuery):
     try:
         stats = await user_storage.get_statistics()
         user_id = callback.from_user.id
-        
-        backup_file = Path(DATA_DIR) / f"user_{user_id}.encrypted.json"
-        if not backup_file.exists():
-            await callback.message.answer("❌ Файл данных не найден")
+
+        encrypted_content = storage.export_data(user_id)
+        if not encrypted_content:
+            await callback.message.answer("❌ Данные пользователя не найдены")
             return
-        
-        async with aiofiles.open(backup_file, 'r') as f:
-            encrypted_content = await f.read()
-        
+
         file_bytes = encrypted_content.encode('utf-8')
         date_str = now().strftime("%Y-%m-%d_%H-%M")
         filename = f"backup_{user_id}_{date_str}.json"

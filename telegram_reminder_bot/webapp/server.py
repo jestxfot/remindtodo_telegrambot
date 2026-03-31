@@ -38,7 +38,7 @@ update_session_duration = None
 
 try:
     from config import BOT_TOKEN
-    from storage.json_storage import storage
+    from storage.sqlite_storage import storage
     from handlers.auth import (
         get_crypto_for_user, is_authenticated, 
         user_has_password, authenticate_user, logout_user,
